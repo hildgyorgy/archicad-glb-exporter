@@ -1,0 +1,18 @@
+#include "Resources.h"
+
+/* Developer ID and Local ID assigned through the Graphisoft developer profile. */
+'MDID' 32500 "Add-On Identifier" {
+    963863907
+    3084799368
+}
+
+'STR#' ADDON_INFO "Add-On Name and Description" {
+    "GLB Exporter Hello"
+    "Minimal Archicad 29 menu and message test."
+}
+
+'STR#' ADDON_MENU "Menu" {
+    "GLB Exporter"
+    "Kijelölt elemek adatainak kiolvasása"
+    "Kijelölt falak és födémek exportálása GLB-be...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
+}
