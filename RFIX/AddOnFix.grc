@@ -14,5 +14,5 @@
 'STR#' ADDON_MENU "Menu" {
     "GLB Exporter"
     "Kijelölt elemek adatainak kiolvasása"
-    "Kijelölt falak és födémek exportálása GLB-be...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
+    "Kijelölt épületelemek exportálása GLB-be...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
 }

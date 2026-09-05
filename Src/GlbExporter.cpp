@@ -4,6 +4,7 @@
 #include "File.hpp"
 #include "FileTypeManager.hpp"
 #include "GlbExporter.hpp"
+#include "PolygonTriangulation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -96,40 +97,128 @@ Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reve
 	return { static_cast<float> (x / length), static_cast<float> (z / length), static_cast<float> (-y / length) };
 }
 
-bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallCount, Int32& slabCount)
+bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallCount, Int32& slabCount, Int32& columnCount, Int32& beamCount, Int32& roofCount, Int32& shellCount, Int32& windowCount, Int32& doorCount)
 {
-	wallCount = 0;
-	slabCount = 0;
-	API_SelectionInfo selectionInfo {};
-	GS::Array<API_Neig> selection;
-	const GSErrCode error = ACAPI_Selection_Get (&selectionInfo, &selection, false);
-	BMKillHandle (reinterpret_cast<GSHandle*> (&selectionInfo.marquee.coords));
-	if (error != NoError)
-		return false;
-	for (const API_Neig& selected : selection) {
-		API_Element element {};
-		element.header.guid = selected.guid;
-		if (ACAPI_Element_Get (&element) != NoError)
-			continue;
-		if (element.header.type == API_WallID)
-			++wallCount;
-		else if (element.header.type == API_SlabID)
-			++slabCount;
-		else
-			continue;
-		elements.Push (element.header);
-	}
-	return !elements.IsEmpty ();
+    wallCount = slabCount = columnCount = beamCount = roofCount = shellCount = windowCount = doorCount = 0;
+    API_SelectionInfo selectionInfo {};
+    GS::Array<API_Neig> selection;
+    const GSErrCode error = ACAPI_Selection_Get (&selectionInfo, &selection, false);
+    BMKillHandle (reinterpret_cast<GSHandle*> (&selectionInfo.marquee.coords));
+    if (error != NoError) return false;
+    GS::HashSet<API_Guid> seen;
+    auto addElement = [&] (const API_Guid& guid) {
+        if (seen.Contains (guid)) return;
+        API_Element element {};
+        element.header.guid = guid;
+        if (ACAPI_Element_Get (&element) != NoError) return;
+        if (element.header.type == API_WallID) ++wallCount;
+        else if (element.header.type == API_SlabID) ++slabCount;
+        else if (element.header.type == API_ColumnID) ++columnCount;
+        else if (element.header.type == API_BeamID) ++beamCount;
+        else if (element.header.type == API_RoofID) ++roofCount;
+        else if (element.header.type == API_ShellID) ++shellCount;
+        else if (element.header.type == API_WindowID) ++windowCount;
+        else if (element.header.type == API_DoorID) ++doorCount;
+        else return;
+        seen.Add (guid);
+        elements.Push (element.header);
+    };
+    for (const auto& selected : selection) addElement (selected.guid);
+    // Copy the initial selection: appending connected openings may reallocate elements.
+    const auto selectedElements = elements;
+    for (const auto& element : selectedElements) {
+        if (element.type != API_WallID) continue;
+        GS::Array<API_Guid> windows;
+        if (ACAPI_Grouping_GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
+            ACAPI_WriteReport ("A falhoz tartozó ablakok listája nem olvasható. Az export megszakadt.", true);
+            return false;
+        }
+        for (const auto& guid : windows) addElement (guid);
+        GS::Array<API_Guid> doors;
+        if (ACAPI_Grouping_GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
+            ACAPI_WriteReport ("A falhoz tartozó ajtók listája nem olvasható. Az export megszakadt.", true);
+            return false;
+        }
+        for (const auto& guid : doors) addElement (guid);
+    }
+
+    // Columns and beams keep their actual 3D bodies on segment subelements.
+    // Their parent elements affect intersections, but have no directly readable body.
+    GS::Array<API_Elem_Head> modelElements;
+    for (const auto& element : elements) {
+        if (element.type != API_ColumnID && element.type != API_BeamID) {
+            modelElements.Push (element);
+            continue;
+        }
+
+        API_ElementMemo memo {};
+        const UInt64 memoMask = element.type == API_ColumnID ? APIMemoMask_ColumnSegment : APIMemoMask_BeamSegment;
+        const GSErrCode memoError = ACAPI_Element_GetMemo (element.guid, &memo, memoMask);
+        if (memoError != NoError) {
+            ACAPI_WriteReport (GS::UniString::Printf ("A kijelölt %s szegmensei nem olvashatók (hiba: %d). Az export megszakadt.",
+                element.type == API_ColumnID ? "oszlop" : "gerenda", memoError), true);
+            ACAPI_DisposeElemMemoHdls (&memo);
+            return false;
+        }
+
+        if (element.type == API_ColumnID) {
+            const GSSize segmentCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.columnSegments)) / sizeof (API_ColumnSegmentType);
+            for (GSSize i = 0; i < segmentCount; ++i)
+                modelElements.Push (memo.columnSegments[i].head);
+        } else {
+            const GSSize segmentCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.beamSegments)) / sizeof (API_BeamSegmentType);
+            for (GSSize i = 0; i < segmentCount; ++i)
+                modelElements.Push (memo.beamSegments[i].head);
+        }
+        ACAPI_DisposeElemMemoHdls (&memo);
+    }
+    elements = std::move (modelElements);
+    return !elements.IsEmpty ();
+}
+
+std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon, Int32 bodyVertexCount)
+{
+    std::vector<std::vector<Int32>> rings (1);
+    for (Int32 i = polygon.fpedg; i <= polygon.lpedg; ++i) {
+        API_Component3D c {};
+        c.header.typeID = API_PedgID;
+        c.header.index = i;
+        if (ACAPI_ModelAccess_GetComponent (&c) != NoError)
+            throw std::runtime_error ("Cannot read polygon contour");
+        const Int32 edge = c.pedg.pedg;
+        if (edge == 0) {
+            if (rings.back ().size () < 3) throw std::runtime_error ("Incomplete contour");
+            rings.emplace_back ();
+            continue;
+        }
+        c.header.typeID = API_EdgeID;
+        c.header.index = std::abs (edge);
+        if (ACAPI_ModelAccess_GetComponent (&c) != NoError)
+            throw std::runtime_error ("Cannot read edge");
+        const Int32 vertex = edge > 0 ? c.edge.vert1 : c.edge.vert2;
+        if (vertex <= 0 || vertex > bodyVertexCount)
+            throw std::runtime_error ("Invalid contour vertex");
+        rings.back ().push_back (vertex);
+    }
+    if (rings.back ().empty ()) rings.pop_back ();
+    return rings;
 }
 
 bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& positions, std::vector<Vec3>& normals,
-	std::vector<Vec2>& textureCoordinates, std::vector<MaterialGroup>& materialGroups)
+	std::vector<Vec2>& textureCoordinates, std::vector<MaterialGroup>& materialGroups, Int32& emptyElementCount, GS::UniString& elementReport)
 {
+    emptyElementCount = 0;
 	std::map<Int32, std::size_t> materialToGroup;
 	for (const API_Elem_Head& element : elements) {
-	API_ElemInfo3D info {};
-	if (ACAPI_ModelAccess_Get3DInfo (element, &info) != NoError)
-		continue;
+    const char* typeName = element.type == API_WallID ? "Fal" : element.type == API_SlabID ? "Födém" : element.type == API_ColumnSegmentID ? "Oszlopszegmens" : element.type == API_BeamSegmentID ? "Gerendaszegmens" : element.type == API_RoofID ? "Tető" : element.type == API_ShellID ? "Héjszerkezet" : element.type == API_WindowID ? "Ablak" : "Ajtó";
+    const auto trianglesBefore = [&] () { std::size_t n = 0; for (const auto& g : materialGroups) n += g.indices.size () / 3; return n; } ();
+    API_ElemInfo3D info {};
+    const GSErrCode modelError = ACAPI_ModelAccess_Get3DInfo (element, &info);
+    if (modelError != NoError || info.lbody < info.fbody) {
+        elementReport += GS::UniString::Printf ("\n%s: nincs elérhető 3D test (hiba: %d).", typeName, modelError);
+        ++emptyElementCount;
+        continue;
+    }
 	for (Int32 bodyIndex = info.fbody; bodyIndex <= info.lbody; ++bodyIndex) {
 		API_Component3D component {};
 		component.header.typeID = API_BodyID;
@@ -140,12 +229,16 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 		const Int32 elementIndex = component.body.head.elemIndex - 1;
 		const Int32 localBodyIndex = component.body.head.bodyIndex - 1;
 		const Int32 polygonCount = component.body.nPgon;
+		const Int32 bodyVertexCount = component.body.nVert;
 		for (Int32 polygonIndex = 1; polygonIndex <= polygonCount; ++polygonIndex) {
 			component.header.typeID = API_PgonID;
 			component.header.index = polygonIndex;
 			if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.pgon.fpedg > component.pgon.lpedg)
 				continue;
 			const API_PgonType polygon = component.pgon;
+			const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
+			if (polygonContours.empty ())
+				continue;
 			std::size_t groupIndex;
 			const auto existingGroup = materialToGroup.find (polygon.iumat);
 			if (existingGroup == materialToGroup.end ()) {
@@ -171,49 +264,45 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 			if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
 				continue;
 			const Vec3 normal = ConvertNormal (transform, component.vect, polygon.ivect < 0);
-			std::vector<Vec3> contour;
-			std::vector<Vec2> contourTextureCoordinates;
-			for (Int32 edgeReferenceIndex = polygon.fpedg; edgeReferenceIndex <= polygon.lpedg; ++edgeReferenceIndex) {
-				component.header.typeID = API_PedgID;
-				component.header.index = edgeReferenceIndex;
-				if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.pedg.pedg == 0)
-					break;
-				const Int32 edgeReference = component.pedg.pedg;
-				component.header.typeID = API_EdgeID;
-				component.header.index = std::abs (edgeReference);
-				if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
-					continue;
-				const Int32 vertexIndex = edgeReference > 0 ? component.edge.vert1 : component.edge.vert2;
-				component.header.typeID = API_VertID;
-				component.header.index = vertexIndex;
-				if (ACAPI_ModelAccess_GetComponent (&component) == NoError) {
-					const API_VertType vertex = component.vert;
-					contour.push_back (ConvertPosition (transform, vertex));
-					API_TexCoordPars parameters {};
-					parameters.elemIdx = elementIndex;
-					parameters.bodyIdx = localBodyIndex;
-					parameters.pgonIndex = polygonIndex;
-					parameters.surfacePoint = { vertex.x, vertex.y, vertex.z };
-					API_UVCoord uv {};
-					if (elementIndex >= 0 && localBodyIndex >= 0 && ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
-						contourTextureCoordinates.push_back (ApplyArchicadTextureTransform (uv, materialGroups[groupIndex].material.texture));
-					else
-						contourTextureCoordinates.push_back ({ 0.0f, 0.0f });
-				}
-			}
-			if (contour.size () < 3)
-				continue;
-			const std::uint32_t base = static_cast<std::uint32_t> (positions.size ());
-			positions.insert (positions.end (), contour.begin (), contour.end ());
-			normals.insert (normals.end (), contour.size (), normal);
-			textureCoordinates.insert (textureCoordinates.end (), contourTextureCoordinates.begin (), contourTextureCoordinates.end ());
-			for (std::uint32_t i = 1; i + 1 < contour.size (); ++i) {
-				materialGroups[groupIndex].indices.push_back (base);
-				materialGroups[groupIndex].indices.push_back (base + i);
-				materialGroups[groupIndex].indices.push_back (base + i + 1);
-			}
+			const double normalSign = polygon.ivect < 0 ? -1.0 : 1.0;
+            const GlbGeometry::Point localNormal {normalSign * component.vect.x, normalSign * component.vect.y, normalSign * component.vect.z};
+            GlbGeometry::Rings localRings;
+            std::vector<API_VertType> vertices;
+            for (const auto& ring : polygonContours) {
+                localRings.emplace_back ();
+                for (Int32 vertexIndex : ring) {
+                    component.header.typeID = API_VertID;
+                    component.header.index = vertexIndex;
+                    if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
+                        throw std::runtime_error ("Cannot read contour vertex");
+                    const auto vertex = component.vert;
+                    vertices.push_back (vertex);
+                    localRings.back ().push_back ({vertex.x, vertex.y, vertex.z});
+                }
+            }
+            const auto triangles = GlbGeometry::Triangulate (localRings, localNormal);
+            const std::uint32_t base = static_cast<std::uint32_t> (positions.size ());
+            for (const auto& vertex : vertices) {
+                positions.push_back (ConvertPosition (transform, vertex));
+                normals.push_back (normal);
+                API_TexCoordPars parameters {};
+                parameters.elemIdx = elementIndex;
+                parameters.bodyIdx = localBodyIndex;
+                parameters.pgonIndex = polygonIndex;
+                parameters.surfacePoint = {vertex.x, vertex.y, vertex.z};
+                API_UVCoord uv {};
+                if (elementIndex >= 0 && localBodyIndex >= 0 && ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
+                    textureCoordinates.push_back (ApplyArchicadTextureTransform (uv, materialGroups[groupIndex].material.texture));
+                else textureCoordinates.push_back ({0.0f, 0.0f});
+            }
+            for (auto index : triangles) materialGroups[groupIndex].indices.push_back (base + index);
 		}
 	}
+    std::size_t trianglesAfter = 0;
+    for (const auto& group : materialGroups) trianglesAfter += group.indices.size () / 3;
+    const auto added = trianglesAfter - trianglesBefore;
+    if (added == 0) ++emptyElementCount;
+    elementReport += GS::UniString::Printf ("\n%s: %d háromszög (testindexek: %d–%d).", typeName, static_cast<Int32> (added), info.fbody, info.lbody);
 	}
 	return !positions.empty () && !materialGroups.empty ();
 }
@@ -253,8 +342,8 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	}
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter\"},"
-		<< "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0,\"name\":\"Archicad Walls\"}],"
+		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter v26\"},"
+		<< "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0,\"name\":\"Archicad Elements\"}],"
 		<< "\"meshes\":[{\"primitives\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (i > 0) json << ',';
@@ -343,19 +432,33 @@ void ExportSelectedElementsToGlb ()
 	GS::Array<API_Elem_Head> elements;
 	Int32 wallCount = 0;
 	Int32 slabCount = 0;
-	if (!GetSelectedExportElements (elements, wallCount, slabCount)) {
-		ACAPI_WriteReport ("Jelölj ki legalább egy falat vagy födémet.", true);
+    Int32 columnCount = 0;
+    Int32 beamCount = 0;
+    Int32 roofCount = 0;
+    Int32 shellCount = 0;
+    Int32 windowCount = 0;
+    Int32 doorCount = 0;
+	if (!GetSelectedExportElements (elements, wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, windowCount, doorCount)) {
+		ACAPI_WriteReport ("Jelölj ki legalább egy falat, födémet, oszlopot, gerendát, tetőt, héjszerkezetet, ablakot vagy ajtót.", true);
 		return;
 	}
 	std::vector<Vec3> positions, normals;
 	std::vector<Vec2> textureCoordinates;
 	std::vector<MaterialGroup> materialGroups;
-	if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups)) {
-		ACAPI_WriteReport ("A kijelölt falak és födémek 3D hálója nem exportálható.", true);
-		return;
-	}
+    Int32 emptyElementCount = 0;
+    GS::UniString elementReport;
+    try {
+        if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, elementReport)) {
+            ACAPI_WriteReport ("A kijelölt elemek 3D hálója nem exportálható.", true);
+            return;
+        }
+    } catch (const std::exception& error) {
+        ACAPI_WriteReport (GS::UniString::Printf ("A geometria feldolgozása sikertelen: %s. Nem készült GLB.", error.what ()), true);
+        return;
+    }
+
 	DG::FileDialog dialog (DG::FileDialog::Save);
-	dialog.SetTitle ("Kijelölt falak és födémek exportálása GLB-be");
+	dialog.SetTitle ("Kijelölt épületelemek exportálása GLB-be");
 	FTM::FileTypeManager manager ("GLBExporterFileTypes");
 	const FTM::TypeID glbType = manager.AddType (FTM::FileType ("glTF Binary", "glb", 'GLB ', 'GLB ', -1));
 	dialog.AddFilter (glbType);
@@ -370,5 +473,5 @@ void ExportSelectedElementsToGlb ()
 	for (const MaterialGroup& group : materialGroups) indexCount += group.indices.size ();
 	Int32 texturedMaterialCount = 0;
 	for (const MaterialGroup& group : materialGroups) if (!group.imageData.empty ()) ++texturedMaterialCount;
-	ACAPI_WriteReport (GS::UniString::Printf ("GLB export kész.\nFalak: %d\nFödémek: %d\nCsúcsok: %d\nHáromszögek: %d\nAnyagok: %d\nBeágyazott textúrák: %d", wallCount, slabCount, static_cast<Int32> (positions.size ()), static_cast<Int32> (indexCount / 3), static_cast<Int32> (materialGroups.size ()), texturedMaterialCount), true);
+	ACAPI_WriteReport (GS::UniString::Printf ("GLB export kész.\nFalak: %d\nFödémek: %d\nOszlopok: %d\nGerendák: %d\nTetők: %d\nHéjszerkezetek: %d\nAblakok (kapcsolódókkal együtt): %d\nAjtók (kapcsolódókkal együtt): %d\n3D test nélküli / nem elérhető elemek: %d\nCsúcsok: %d\nHáromszögek: %d\nAnyagok: %d\nBeágyazott textúrák: %d", wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, windowCount, doorCount, emptyElementCount, static_cast<Int32> (positions.size ()), static_cast<Int32> (indexCount / 3), static_cast<Int32> (materialGroups.size ()), texturedMaterialCount) + elementReport, true);
 }
