@@ -48,5 +48,13 @@ int main() {
     // Regression contour recovered from the intact side faces of l_alak.glb.
     cases.push_back ({Shape{std::vector<XY>{{2.0721874237060547,-16.84885025024414},{17.39390754699707,-16.84885025024414},{4.742133617401123,-5.285401344299316},{-15.370153427124023,-5.9485673904418945},{-8.905878067016602,-16.84885025024414},{-4.069102764129639,-11.398709297180176}}}, 233.9003642715718});
     for(auto& c:cases) for(int axis=0;axis<3;++axis) for(bool reverse:{false,true}) check(c.first,c.second,axis,reverse);
-    std::cout<<"42 triangulation cases passed: area, cutouts, holes, winding, three planes, large offset.\n";
+    for (int axis=0; axis<3; ++axis) for (bool reverse:{false,true}) {
+        Rings rings(1); Point normal{}; normal[axis]=reverse?-1:1;
+        int a=(axis+1)%3,b=(axis+2)%3;
+        for (XY xy:std::vector<XY>{{0,0},{1,0},{2,0}}) { Point p{}; p[a]=xy[0]; p[b]=xy[1]; rings[0].push_back(p); }
+        bool rejected=false;
+        try { (void) Triangulate(rings,normal); } catch (const DegeneratePolygon&) { rejected=true; }
+        assert(rejected);
+    }
+    std::cout<<"48 triangulation cases passed: area, cutouts, holes, winding, three planes, large offset, zero-area rejection.\n";
 }

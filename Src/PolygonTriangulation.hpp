@@ -18,6 +18,11 @@ namespace GlbGeometry {
 using Point = std::array<double, 3>;
 using Rings = std::vector<std::vector<Point>>;
 
+class DegeneratePolygon final : public std::runtime_error {
+public:
+    DegeneratePolygon () : std::runtime_error ("Zero-area polygon") {}
+};
+
 // Indices address the concatenation of outer ring, then hole rings.
 inline std::vector<std::uint32_t> Triangulate (const Rings& rings, const Point& normal)
 {
@@ -49,9 +54,13 @@ inline std::vector<std::uint32_t> Triangulate (const Rings& rings, const Point& 
         }
         expectedArea += (projected.size () == 1 ? 1 : -1) * std::abs (area) / 2;
     }
+    if (std::abs (expectedArea) <= 1e-12)
+        throw DegeneratePolygon ();
+    if (expectedArea < 0)
+        throw std::runtime_error ("Hole area exceeds outer contour area");
     auto indices = mapbox::earcut<std::uint32_t> (projected);
-    if (indices.empty () || indices.size () % 3 || expectedArea <= 0)
-        throw std::runtime_error ("Triangulation failed");
+    if (indices.empty () || indices.size () % 3)
+        throw std::runtime_error ("Earcut returned no triangles");
     double actualArea = 0;
     for (std::size_t i = 0; i < indices.size (); i += 3) {
         for (int k = 0; k < 3; ++k)

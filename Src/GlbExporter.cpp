@@ -28,6 +28,45 @@ struct MaterialGroup {
 	std::string imageMimeType;
 };
 
+template<class ElementType>
+void AppendElementHeads (GS::Array<API_Elem_Head>& elements, ElementType* items)
+{
+    const GSSize count = BMGetPtrSize (reinterpret_cast<GSPtr> (items)) / sizeof (ElementType);
+    for (GSSize i = 0; i < count; ++i)
+        elements.Push (items[i].head);
+}
+
+const char* GetElementTypeName (const API_ElemType& type)
+{
+    if (type == API_WallID) return "Fal";
+    if (type == API_SlabID) return "Födém";
+    if (type == API_ColumnSegmentID) return "Oszlopszegmens";
+    if (type == API_BeamSegmentID) return "Gerendaszegmens";
+    if (type == API_RoofID) return "Tető";
+    if (type == API_ShellID) return "Héjszerkezet";
+    if (type == API_RiserID) return "Lépcső homloklap";
+    if (type == API_TreadID) return "Lépcső járólap";
+    if (type == API_StairStructureID) return "Lépcső tartószerkezet";
+    if (type == API_RailingPostID || type == API_RailingInnerPostID || type == API_RailingRailID ||
+        type == API_RailingHandrailID || type == API_RailingToprailID || type == API_RailingPanelID ||
+        type == API_RailingBalusterID || type == API_RailingRailEndID || type == API_RailingHandrailEndID ||
+        type == API_RailingToprailEndID || type == API_RailingRailConnectionID ||
+        type == API_RailingHandrailConnectionID || type == API_RailingToprailConnectionID)
+        return "Korlátelem";
+    if (type == API_ObjectID) return "Tárgy";
+    if (type == API_LampID) return "Lámpa";
+    if (type == API_MorphID) return "MORPH";
+    if (type == API_MeshID) return "Háló/terep";
+    if (type == API_CurtainWallFrameID) return "Függönyfal keret";
+    if (type == API_CurtainWallPanelID) return "Függönyfal panel";
+    if (type == API_CurtainWallJunctionID) return "Függönyfal csomópont";
+    if (type == API_CurtainWallAccessoryID) return "Függönyfal tartozék";
+    if (type == API_WindowID) return "Ablak";
+    if (type == API_DoorID) return "Ajtó";
+    if (type == API_SkylightID) return "Tetősíkablak";
+    return "3D elem";
+}
+
 Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const API_Texture& texture)
 {
 	// Equivalent to ModelerAPI::TextureCoordinate::ApplyMaterialParameters:
@@ -97,9 +136,9 @@ Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reve
 	return { static_cast<float> (x / length), static_cast<float> (z / length), static_cast<float> (-y / length) };
 }
 
-bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallCount, Int32& slabCount, Int32& columnCount, Int32& beamCount, Int32& roofCount, Int32& shellCount, Int32& windowCount, Int32& doorCount)
+bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallCount, Int32& slabCount, Int32& columnCount, Int32& beamCount, Int32& roofCount, Int32& shellCount, Int32& stairCount, Int32& railingCount, Int32& objectCount, Int32& lampCount, Int32& morphCount, Int32& meshCount, Int32& curtainWallCount, Int32& windowCount, Int32& doorCount, Int32& skylightCount)
 {
-    wallCount = slabCount = columnCount = beamCount = roofCount = shellCount = windowCount = doorCount = 0;
+    wallCount = slabCount = columnCount = beamCount = roofCount = shellCount = stairCount = railingCount = objectCount = lampCount = morphCount = meshCount = curtainWallCount = windowCount = doorCount = skylightCount = 0;
     API_SelectionInfo selectionInfo {};
     GS::Array<API_Neig> selection;
     const GSErrCode error = ACAPI_Selection_Get (&selectionInfo, &selection, false);
@@ -117,8 +156,16 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
         else if (element.header.type == API_BeamID) ++beamCount;
         else if (element.header.type == API_RoofID) ++roofCount;
         else if (element.header.type == API_ShellID) ++shellCount;
+        else if (element.header.type == API_StairID) ++stairCount;
+        else if (element.header.type == API_RailingID) ++railingCount;
+        else if (element.header.type == API_ObjectID) ++objectCount;
+        else if (element.header.type == API_LampID) ++lampCount;
+        else if (element.header.type == API_MorphID) ++morphCount;
+        else if (element.header.type == API_MeshID) ++meshCount;
+        else if (element.header.type == API_CurtainWallID) ++curtainWallCount;
         else if (element.header.type == API_WindowID) ++windowCount;
         else if (element.header.type == API_DoorID) ++doorCount;
+        else if (element.header.type == API_SkylightID) ++skylightCount;
         else return;
         seen.Add (guid);
         elements.Push (element.header);
@@ -127,36 +174,54 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
     // Copy the initial selection: appending connected openings may reallocate elements.
     const auto selectedElements = elements;
     for (const auto& element : selectedElements) {
-        if (element.type != API_WallID) continue;
-        GS::Array<API_Guid> windows;
-        if (ACAPI_Grouping_GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
-            ACAPI_WriteReport ("A falhoz tartozó ablakok listája nem olvasható. Az export megszakadt.", true);
-            return false;
+        if (element.type == API_WallID) {
+            GS::Array<API_Guid> windows;
+            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
+                ACAPI_WriteReport ("A falhoz tartozó ablakok listája nem olvasható. Az export megszakadt.", true);
+                return false;
+            }
+            for (const auto& guid : windows) addElement (guid);
+            GS::Array<API_Guid> doors;
+            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
+                ACAPI_WriteReport ("A falhoz tartozó ajtók listája nem olvasható. Az export megszakadt.", true);
+                return false;
+            }
+            for (const auto& guid : doors) addElement (guid);
         }
-        for (const auto& guid : windows) addElement (guid);
-        GS::Array<API_Guid> doors;
-        if (ACAPI_Grouping_GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
-            ACAPI_WriteReport ("A falhoz tartozó ajtók listája nem olvasható. Az export megszakadt.", true);
-            return false;
+        if (element.type == API_RoofID || element.type == API_ShellID) {
+            GS::Array<API_Guid> skylights;
+            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_SkylightID, &skylights) != NoError) {
+                ACAPI_WriteReport ("A tetőhöz vagy héjszerkezethez tartozó tetősíkablakok listája nem olvasható. Az export megszakadt.", true);
+                return false;
+            }
+            for (const auto& guid : skylights) addElement (guid);
         }
-        for (const auto& guid : doors) addElement (guid);
     }
 
-    // Columns and beams keep their actual 3D bodies on segment subelements.
-    // Their parent elements affect intersections, but have no directly readable body.
+    // Composite elements keep their actual 3D bodies on subelements.
     GS::Array<API_Elem_Head> modelElements;
     for (const auto& element : elements) {
-        if (element.type != API_ColumnID && element.type != API_BeamID) {
+        if (element.type != API_ColumnID && element.type != API_BeamID && element.type != API_StairID &&
+            element.type != API_RailingID && element.type != API_CurtainWallID) {
             modelElements.Push (element);
             continue;
         }
 
         API_ElementMemo memo {};
-        const UInt64 memoMask = element.type == API_ColumnID ? APIMemoMask_ColumnSegment : APIMemoMask_BeamSegment;
+        const UInt64 memoMask = element.type == API_ColumnID ? APIMemoMask_ColumnSegment :
+            element.type == API_BeamID ? APIMemoMask_BeamSegment :
+            element.type == API_StairID ? APIMemoMask_StairRiser | APIMemoMask_StairTread | APIMemoMask_StairStructure :
+            element.type == API_CurtainWallID ? APIMemoMask_CWallFrames | APIMemoMask_CWallPanels |
+                APIMemoMask_CWallJunctions | APIMemoMask_CWallAccessories :
+            APIMemoMask_RailingPost | APIMemoMask_RailingInnerPost | APIMemoMask_RailingRail |
+            APIMemoMask_RailingHandrail | APIMemoMask_RailingToprail | APIMemoMask_RailingPanel |
+            APIMemoMask_RailingBaluster | APIMemoMask_RailingRailEnd | APIMemoMask_RailingHandrailEnd |
+            APIMemoMask_RailingToprailEnd | APIMemoMask_RailingRailConnection |
+            APIMemoMask_RailingHandrailConnection | APIMemoMask_RailingToprailConnection;
         const GSErrCode memoError = ACAPI_Element_GetMemo (element.guid, &memo, memoMask);
         if (memoError != NoError) {
             ACAPI_WriteReport (GS::UniString::Printf ("A kijelölt %s szegmensei nem olvashatók (hiba: %d). Az export megszakadt.",
-                element.type == API_ColumnID ? "oszlop" : "gerenda", memoError), true);
+                element.type == API_ColumnID ? "oszlop" : element.type == API_BeamID ? "gerenda" : element.type == API_StairID ? "lépcső" : element.type == API_CurtainWallID ? "függönyfal" : "korlát", memoError), true);
             ACAPI_DisposeElemMemoHdls (&memo);
             return false;
         }
@@ -165,10 +230,44 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
             const GSSize segmentCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.columnSegments)) / sizeof (API_ColumnSegmentType);
             for (GSSize i = 0; i < segmentCount; ++i)
                 modelElements.Push (memo.columnSegments[i].head);
-        } else {
+        } else if (element.type == API_BeamID) {
             const GSSize segmentCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.beamSegments)) / sizeof (API_BeamSegmentType);
             for (GSSize i = 0; i < segmentCount; ++i)
                 modelElements.Push (memo.beamSegments[i].head);
+        } else if (element.type == API_StairID) {
+            const GSSize riserCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.stairRisers)) / sizeof (API_StairRiserType);
+            for (GSSize i = 0; i < riserCount; ++i)
+                modelElements.Push (memo.stairRisers[i].head);
+            const GSSize treadCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.stairTreads)) / sizeof (API_StairTreadType);
+            for (GSSize i = 0; i < treadCount; ++i)
+                modelElements.Push (memo.stairTreads[i].head);
+            const GSSize structureCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.stairStructures)) / sizeof (API_StairStructureType);
+            for (GSSize i = 0; i < structureCount; ++i)
+                modelElements.Push (memo.stairStructures[i].head);
+        } else if (element.type == API_RailingID) {
+            AppendElementHeads (modelElements, memo.railingPosts);
+            AppendElementHeads (modelElements, memo.railingInnerPosts);
+            AppendElementHeads (modelElements, memo.railingRails);
+            AppendElementHeads (modelElements, memo.railingHandrails);
+            AppendElementHeads (modelElements, memo.railingToprails);
+            AppendElementHeads (modelElements, memo.railingPanels);
+            AppendElementHeads (modelElements, memo.railingBalusters);
+            AppendElementHeads (modelElements, memo.railingRailEnds);
+            AppendElementHeads (modelElements, memo.railingHandrailEnds);
+            AppendElementHeads (modelElements, memo.railingToprailEnds);
+            AppendElementHeads (modelElements, memo.railingRailConnections);
+            AppendElementHeads (modelElements, memo.railingHandrailConnections);
+            AppendElementHeads (modelElements, memo.railingToprailConnections);
+        } else {
+            AppendElementHeads (modelElements, memo.cWallFrames);
+            const GSSize panelCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.cWallPanels)) / sizeof (API_CWPanelType);
+            for (GSSize i = 0; i < panelCount; ++i) {
+                bool isDegenerate = false;
+                if (ACAPI_CurtainWall_IsCWPanelDegenerate (&memo.cWallPanels[i].head.guid, &isDegenerate) == NoError && !isDegenerate)
+                    modelElements.Push (memo.cWallPanels[i].head);
+            }
+            AppendElementHeads (modelElements, memo.cWallJunctions);
+            AppendElementHeads (modelElements, memo.cWallAccessories);
         }
         ACAPI_DisposeElemMemoHdls (&memo);
     }
@@ -205,17 +304,31 @@ std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon,
 }
 
 bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& positions, std::vector<Vec3>& normals,
-	std::vector<Vec2>& textureCoordinates, std::vector<MaterialGroup>& materialGroups, Int32& emptyElementCount, GS::UniString& elementReport)
+	std::vector<Vec2>& textureCoordinates, std::vector<MaterialGroup>& materialGroups, Int32& emptyElementCount,
+    Int32& failedElementCount, GS::UniString& elementReport)
 {
     emptyElementCount = 0;
+	failedElementCount = 0;
 	std::map<Int32, std::size_t> materialToGroup;
 	for (const API_Elem_Head& element : elements) {
-    const char* typeName = element.type == API_WallID ? "Fal" : element.type == API_SlabID ? "Födém" : element.type == API_ColumnSegmentID ? "Oszlopszegmens" : element.type == API_BeamSegmentID ? "Gerendaszegmens" : element.type == API_RoofID ? "Tető" : element.type == API_ShellID ? "Héjszerkezet" : element.type == API_WindowID ? "Ablak" : "Ajtó";
+    const char* typeName = GetElementTypeName (element.type);
+    const GS::UniString elementGuid = APIGuid2GSGuid (element.guid).ToUniString ();
+    const std::size_t positionsBefore = positions.size ();
+    const std::size_t normalsBefore = normals.size ();
+    const std::size_t textureCoordinatesBefore = textureCoordinates.size ();
+    const std::size_t materialGroupCountBefore = materialGroups.size ();
+    std::vector<std::size_t> groupIndexCountsBefore;
+    groupIndexCountsBefore.reserve (materialGroupCountBefore);
+    for (const auto& group : materialGroups)
+        groupIndexCountsBefore.push_back (group.indices.size ());
+    try {
+    Int32 skippedPolygonCount = 0;
+    std::string lastPolygonError;
     const auto trianglesBefore = [&] () { std::size_t n = 0; for (const auto& g : materialGroups) n += g.indices.size () / 3; return n; } ();
     API_ElemInfo3D info {};
     const GSErrCode modelError = ACAPI_ModelAccess_Get3DInfo (element, &info);
     if (modelError != NoError || info.lbody < info.fbody) {
-        elementReport += GS::UniString::Printf ("\n%s: nincs elérhető 3D test (hiba: %d).", typeName, modelError);
+        elementReport += GS::UniString::Printf ("\nHIBA – %s, GUID: %s: nincs elérhető 3D test (API-hiba: %d).", typeName, elementGuid.ToCStr ().Get (), modelError);
         ++emptyElementCount;
         continue;
     }
@@ -236,29 +349,10 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 			if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.pgon.fpedg > component.pgon.lpedg)
 				continue;
 			const API_PgonType polygon = component.pgon;
+			try {
 			const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 			if (polygonContours.empty ())
 				continue;
-			std::size_t groupIndex;
-			const auto existingGroup = materialToGroup.find (polygon.iumat);
-			if (existingGroup == materialToGroup.end ()) {
-				API_Component3D materialComponent {};
-				materialComponent.header.typeID = API_UmatID;
-				materialComponent.header.index = polygon.iumat;
-				if (ACAPI_ModelAccess_GetComponent (&materialComponent) == NoError) {
-					MaterialGroup group;
-					group.sourceIndex = polygon.iumat;
-					group.material = materialComponent.umat.mater;
-					IO::Location* textureLocation = materialComponent.umat.mater.texture.fileLoc;
-					group.material.texture.fileLoc = nullptr;
-					LoadTextureImage (textureLocation, group);
-					delete textureLocation;
-					groupIndex = materialGroups.size ();
-					materialGroups.push_back (group);
-					materialToGroup[polygon.iumat] = groupIndex;
-				}
-				else continue;
-			} else groupIndex = existingGroup->second;
 			component.header.typeID = API_VectID;
 			component.header.index = std::abs (polygon.ivect);
 			if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
@@ -281,6 +375,29 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
                 }
             }
             const auto triangles = GlbGeometry::Triangulate (localRings, localNormal);
+			std::size_t groupIndex;
+			const auto existingGroup = materialToGroup.find (polygon.iumat);
+			if (existingGroup == materialToGroup.end ()) {
+				API_Component3D materialComponent {};
+				materialComponent.header.typeID = API_UmatID;
+				materialComponent.header.index = polygon.iumat;
+				if (ACAPI_ModelAccess_GetComponent (&materialComponent) == NoError) {
+					MaterialGroup group;
+					group.sourceIndex = polygon.iumat;
+					group.material = materialComponent.umat.mater;
+					IO::Location* textureLocation = materialComponent.umat.mater.texture.fileLoc;
+					group.material.texture.fileLoc = nullptr;
+					LoadTextureImage (textureLocation, group);
+					delete textureLocation;
+					groupIndex = materialGroups.size ();
+					materialGroups.push_back (group);
+					materialToGroup[polygon.iumat] = groupIndex;
+				} else {
+					throw std::runtime_error ("Cannot read polygon material");
+				}
+			} else {
+				groupIndex = existingGroup->second;
+			}
             const std::uint32_t base = static_cast<std::uint32_t> (positions.size ());
             for (const auto& vertex : vertices) {
                 positions.push_back (ConvertPosition (transform, vertex));
@@ -296,13 +413,38 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
                 else textureCoordinates.push_back ({0.0f, 0.0f});
             }
             for (auto index : triangles) materialGroups[groupIndex].indices.push_back (base + index);
+			} catch (const GlbGeometry::DegeneratePolygon&) {
+				// GDL objects commonly contain intentional zero-area helper polygons.
+				// They have no visible surface and can be omitted without data loss.
+			} catch (const std::exception& error) {
+				++skippedPolygonCount;
+				lastPolygonError = error.what ();
+			}
 		}
 	}
     std::size_t trianglesAfter = 0;
     for (const auto& group : materialGroups) trianglesAfter += group.indices.size () / 3;
     const auto added = trianglesAfter - trianglesBefore;
     if (added == 0) ++emptyElementCount;
-    elementReport += GS::UniString::Printf ("\n%s: %d háromszög (testindexek: %d–%d).", typeName, static_cast<Int32> (added), info.fbody, info.lbody);
+	if (skippedPolygonCount > 0) {
+		++failedElementCount;
+		elementReport += GS::UniString::Printf ("\nHIBA – %s, GUID: %s: %d hibás poligon kimaradt (utolsó hiba: %s). Az elem többi része exportálva.",
+			typeName, elementGuid.ToCStr ().Get (), skippedPolygonCount, lastPolygonError.c_str ());
+	}
+	} catch (const std::exception& error) {
+		positions.resize (positionsBefore);
+		normals.resize (normalsBefore);
+		textureCoordinates.resize (textureCoordinatesBefore);
+		for (std::size_t i = 0; i < materialGroupCountBefore; ++i)
+			materialGroups[i].indices.resize (groupIndexCountsBefore[i]);
+		while (materialGroups.size () > materialGroupCountBefore) {
+			materialToGroup.erase (materialGroups.back ().sourceIndex);
+			materialGroups.pop_back ();
+		}
+		++failedElementCount;
+		elementReport += GS::UniString::Printf ("\nHIBA – %s, GUID: %s: %s. Az elem kimaradt, az export folytatódott.",
+			typeName, elementGuid.ToCStr ().Get (), error.what ());
+	}
 	}
 	return !positions.empty () && !materialGroups.empty ();
 }
@@ -342,7 +484,7 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	}
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter v26\"},"
+		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter v37\"},"
 		<< "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0,\"name\":\"Archicad Elements\"}],"
 		<< "\"meshes\":[{\"primitives\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
@@ -436,27 +578,22 @@ void ExportSelectedElementsToGlb ()
     Int32 beamCount = 0;
     Int32 roofCount = 0;
     Int32 shellCount = 0;
+    Int32 stairCount = 0;
+    Int32 railingCount = 0;
+    Int32 objectCount = 0;
+    Int32 lampCount = 0;
+    Int32 morphCount = 0;
+    Int32 meshCount = 0;
+    Int32 curtainWallCount = 0;
     Int32 windowCount = 0;
     Int32 doorCount = 0;
-	if (!GetSelectedExportElements (elements, wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, windowCount, doorCount)) {
-		ACAPI_WriteReport ("Jelölj ki legalább egy falat, födémet, oszlopot, gerendát, tetőt, héjszerkezetet, ablakot vagy ajtót.", true);
+    Int32 skylightCount = 0;
+	if (!GetSelectedExportElements (elements, wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, stairCount, railingCount, objectCount, lampCount, morphCount, meshCount, curtainWallCount, windowCount, doorCount, skylightCount)) {
+		ACAPI_WriteReport ("Jelölj ki legalább egy támogatott 3D épületelemet.", true);
 		return;
 	}
-	std::vector<Vec3> positions, normals;
-	std::vector<Vec2> textureCoordinates;
-	std::vector<MaterialGroup> materialGroups;
-    Int32 emptyElementCount = 0;
-    GS::UniString elementReport;
-    try {
-        if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, elementReport)) {
-            ACAPI_WriteReport ("A kijelölt elemek 3D hálója nem exportálható.", true);
-            return;
-        }
-    } catch (const std::exception& error) {
-        ACAPI_WriteReport (GS::UniString::Printf ("A geometria feldolgozása sikertelen: %s. Nem készült GLB.", error.what ()), true);
-        return;
-    }
 
+	// Ask for the destination before potentially expensive stair/railing mesh processing.
 	DG::FileDialog dialog (DG::FileDialog::Save);
 	dialog.SetTitle ("Kijelölt épületelemek exportálása GLB-be");
 	FTM::FileTypeManager manager ("GLBExporterFileTypes");
@@ -465,13 +602,30 @@ void ExportSelectedElementsToGlb ()
 	if (!dialog.Invoke ())
 		return;
 	const IO::Location location = dialog.GetSelectedFile ();
+
+	std::vector<Vec3> positions, normals;
+	std::vector<Vec2> textureCoordinates;
+	std::vector<MaterialGroup> materialGroups;
+    Int32 emptyElementCount = 0;
+    Int32 failedElementCount = 0;
+    GS::UniString elementReport;
+    try {
+        if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, elementReport)) {
+            ACAPI_WriteReport ("A kijelölt elemek 3D hálója nem exportálható.", true);
+            return;
+        }
+    } catch (const std::exception& error) {
+        ACAPI_WriteReport (GS::UniString::Printf ("A geometria feldolgozása sikertelen: %s. Nem készült GLB.", error.what ()), true);
+        return;
+    }
+
 	if (!WriteGlb (location, positions, normals, textureCoordinates, materialGroups)) {
 		ACAPI_WriteReport ("A GLB-fájl írása sikertelen.", true);
 		return;
 	}
-	std::size_t indexCount = 0;
-	for (const MaterialGroup& group : materialGroups) indexCount += group.indices.size ();
-	Int32 texturedMaterialCount = 0;
-	for (const MaterialGroup& group : materialGroups) if (!group.imageData.empty ()) ++texturedMaterialCount;
-	ACAPI_WriteReport (GS::UniString::Printf ("GLB export kész.\nFalak: %d\nFödémek: %d\nOszlopok: %d\nGerendák: %d\nTetők: %d\nHéjszerkezetek: %d\nAblakok (kapcsolódókkal együtt): %d\nAjtók (kapcsolódókkal együtt): %d\n3D test nélküli / nem elérhető elemek: %d\nCsúcsok: %d\nHáromszögek: %d\nAnyagok: %d\nBeágyazott textúrák: %d", wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, windowCount, doorCount, emptyElementCount, static_cast<Int32> (positions.size ()), static_cast<Int32> (indexCount / 3), static_cast<Int32> (materialGroups.size ()), texturedMaterialCount) + elementReport, true);
+	const Int32 problemCount = emptyElementCount + failedElementCount;
+	if (problemCount == 0)
+		ACAPI_WriteReport ("GLB export kész.\nHibás vagy kihagyott elem: 0", true);
+	else
+		ACAPI_WriteReport (GS::UniString::Printf ("GLB export kész.\nHibás vagy kihagyott elemek: %d", problemCount) + elementReport, true);
 }
