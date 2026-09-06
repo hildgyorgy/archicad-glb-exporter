@@ -60,33 +60,33 @@ void AppendElementHeads (GS::Array<API_Elem_Head>& elements, ElementType* items)
 
 const char* GetElementTypeName (const API_ElemType& type)
 {
-    if (type == API_WallID) return "Fal";
-    if (type == API_SlabID) return "Födém";
-    if (type == API_ColumnSegmentID) return "Oszlopszegmens";
-    if (type == API_BeamSegmentID) return "Gerendaszegmens";
-    if (type == API_RoofID) return "Tető";
-    if (type == API_ShellID) return "Héjszerkezet";
-    if (type == API_RiserID) return "Lépcső homloklap";
-    if (type == API_TreadID) return "Lépcső járólap";
-    if (type == API_StairStructureID) return "Lépcső tartószerkezet";
+    if (type == API_WallID) return "Wall";
+    if (type == API_SlabID) return "Slab";
+    if (type == API_ColumnSegmentID) return "Column segment";
+    if (type == API_BeamSegmentID) return "Beam segment";
+    if (type == API_RoofID) return "Roof";
+    if (type == API_ShellID) return "Shell";
+    if (type == API_RiserID) return "Stair riser";
+    if (type == API_TreadID) return "Stair tread";
+    if (type == API_StairStructureID) return "Stair structure";
     if (type == API_RailingPostID || type == API_RailingInnerPostID || type == API_RailingRailID ||
         type == API_RailingHandrailID || type == API_RailingToprailID || type == API_RailingPanelID ||
         type == API_RailingBalusterID || type == API_RailingRailEndID || type == API_RailingHandrailEndID ||
         type == API_RailingToprailEndID || type == API_RailingRailConnectionID ||
         type == API_RailingHandrailConnectionID || type == API_RailingToprailConnectionID)
-        return "Korlátelem";
-    if (type == API_ObjectID) return "Tárgy";
-    if (type == API_LampID) return "Lámpa";
+        return "Railing component";
+    if (type == API_ObjectID) return "Object";
+    if (type == API_LampID) return "Lamp";
     if (type == API_MorphID) return "MORPH";
-    if (type == API_MeshID) return "Háló/terep";
-    if (type == API_CurtainWallFrameID) return "Függönyfal keret";
-    if (type == API_CurtainWallPanelID) return "Függönyfal panel";
-    if (type == API_CurtainWallJunctionID) return "Függönyfal csomópont";
-    if (type == API_CurtainWallAccessoryID) return "Függönyfal tartozék";
-    if (type == API_WindowID) return "Ablak";
-    if (type == API_DoorID) return "Ajtó";
-    if (type == API_SkylightID) return "Tetősíkablak";
-    return "3D elem";
+    if (type == API_MeshID) return "Mesh/terrain";
+    if (type == API_CurtainWallFrameID) return "Curtain wall frame";
+    if (type == API_CurtainWallPanelID) return "Curtain wall panel";
+    if (type == API_CurtainWallJunctionID) return "Curtain wall junction";
+    if (type == API_CurtainWallAccessoryID) return "Curtain wall accessory";
+    if (type == API_WindowID) return "Window";
+    if (type == API_DoorID) return "Door";
+    if (type == API_SkylightID) return "Skylight";
+    return "3D element";
 }
 
 Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const API_Texture& texture)
@@ -226,13 +226,13 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
         if (element.type == API_WallID) {
             GS::Array<API_Guid> windows;
             if (ACAPI_Grouping_GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
-                ACAPI_WriteReport ("A falhoz tartozó ablakok listája nem olvasható. Az export megszakadt.", true);
+                ACAPI_WriteReport ("The windows connected to a selected wall could not be read. Export stopped.", true);
                 return false;
             }
             for (const auto& guid : windows) addElement (guid);
             GS::Array<API_Guid> doors;
             if (ACAPI_Grouping_GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
-                ACAPI_WriteReport ("A falhoz tartozó ajtók listája nem olvasható. Az export megszakadt.", true);
+                ACAPI_WriteReport ("The doors connected to a selected wall could not be read. Export stopped.", true);
                 return false;
             }
             for (const auto& guid : doors) addElement (guid);
@@ -240,7 +240,7 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
         if (element.type == API_RoofID || element.type == API_ShellID) {
             GS::Array<API_Guid> skylights;
             if (ACAPI_Grouping_GetConnectedElements (element.guid, API_SkylightID, &skylights) != NoError) {
-                ACAPI_WriteReport ("A tetőhöz vagy héjszerkezethez tartozó tetősíkablakok listája nem olvasható. Az export megszakadt.", true);
+                ACAPI_WriteReport ("The skylights connected to a selected roof or shell could not be read. Export stopped.", true);
                 return false;
             }
             for (const auto& guid : skylights) addElement (guid);
@@ -272,8 +272,8 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
             APIMemoMask_RailingHandrailConnection | APIMemoMask_RailingToprailConnection;
         const GSErrCode memoError = ACAPI_Element_GetMemo (element.guid, &memo, memoMask);
         if (memoError != NoError) {
-            ACAPI_WriteReport (GS::UniString::Printf ("A kijelölt %s szegmensei nem olvashatók (hiba: %d). Az export megszakadt.",
-                element.type == API_ColumnID ? "oszlop" : element.type == API_BeamID ? "gerenda" : element.type == API_StairID ? "lépcső" : element.type == API_CurtainWallID ? "függönyfal" : "korlát", memoError), true);
+            ACAPI_WriteReport (GS::UniString::Printf ("The selected %s components could not be read (error: %d). Export stopped.",
+                element.type == API_ColumnID ? "column" : element.type == API_BeamID ? "beam" : element.type == API_StairID ? "stair" : element.type == API_CurtainWallID ? "curtain wall" : "railing", memoError), true);
             ACAPI_DisposeElemMemoHdls (&memo);
             return false;
         }
@@ -503,7 +503,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
     if (added == 0) ++emptyElementCount;
 	if (skippedPolygonCount > 0) {
 		++failedElementCount;
-		elementReport += GS::UniString::Printf ("\nHIBA – %s, GUID: %s: %d hibás poligon kimaradt (utolsó hiba: %s). Az elem többi része exportálva.",
+		elementReport += GS::UniString::Printf ("\nERROR – %s, GUID: %s: %d invalid polygons skipped (last error: %s). The rest of the element was exported.",
 			typeName, elementGuid.ToCStr ().Get (), skippedPolygonCount, lastPolygonError.c_str ());
 	}
 	} catch (const std::exception& error) {
@@ -517,7 +517,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 			materialGroups.pop_back ();
 		}
 		++failedElementCount;
-		elementReport += GS::UniString::Printf ("\nHIBA – %s, GUID: %s: %s. Az elem kimaradt, az export folytatódott.",
+		elementReport += GS::UniString::Printf ("\nERROR – %s, GUID: %s: %s. The element was skipped and export continued.",
 			typeName, elementGuid.ToCStr ().Get (), error.what ());
 	}
 	}
@@ -588,7 +588,7 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	while (binary.size () % 4 != 0) binary.push_back (0);
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter v41\"},"
+		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Drop & View GLB Exporter v0.1.0-alpha\"},"
 		<< "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (i > 0) json << ',';
@@ -716,14 +716,14 @@ void ExportSelectedElementsToGlb ()
     Int32 doorCount = 0;
     Int32 skylightCount = 0;
 	if (!GetSelectedExportElements (elements, wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, stairCount, railingCount, objectCount, lampCount, morphCount, meshCount, curtainWallCount, windowCount, doorCount, skylightCount)) {
-		ACAPI_WriteReport ("Jelölj ki legalább egy támogatott 3D épületelemet.", true);
+		ACAPI_WriteReport ("Select at least one supported 3D element.", true);
 		return;
 	}
 
 	// Ask for the destination before potentially expensive stair/railing mesh processing.
 	DG::FileDialog dialog (DG::FileDialog::Save);
-	dialog.SetTitle ("Kijelölt épületelemek exportálása GLB-be");
-	FTM::FileTypeManager manager ("GLBExporterFileTypes");
+	dialog.SetTitle ("Export selected 3D elements to GLB");
+	FTM::FileTypeManager manager ("DropViewGLBExporterFileTypes");
 	const FTM::TypeID glbType = manager.AddType (FTM::FileType ("glTF Binary", "glb", 'GLB ', 'GLB ', -1));
 	dialog.AddFilter (glbType);
 	if (!dialog.Invoke ())
@@ -739,25 +739,25 @@ void ExportSelectedElementsToGlb ()
     try {
 		Scoped3DWindowSight sight;
 		if (sight.GetError () != NoError) {
-			ACAPI_WriteReport (GS::UniString::Printf ("Az aktuális 3D ablak modellje nem érhető el (hiba: %d). Nem készült GLB.", sight.GetError ()), true);
+			ACAPI_WriteReport (GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.", sight.GetError ()), true);
 			return;
 		}
         if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, elementReport)) {
-            ACAPI_WriteReport ("A kijelölt elemek 3D hálója nem exportálható.", true);
+            ACAPI_WriteReport ("The selected elements do not contain exportable 3D geometry.", true);
             return;
         }
     } catch (const std::exception& error) {
-        ACAPI_WriteReport (GS::UniString::Printf ("A geometria feldolgozása sikertelen: %s. Nem készült GLB.", error.what ()), true);
+        ACAPI_WriteReport (GS::UniString::Printf ("Geometry processing failed: %s. No GLB was created.", error.what ()), true);
         return;
     }
 
 	if (!WriteGlb (location, positions, normals, textureCoordinates, materialGroups)) {
-		ACAPI_WriteReport ("A GLB-fájl írása sikertelen.", true);
+		ACAPI_WriteReport ("Writing the GLB file failed.", true);
 		return;
 	}
 	const Int32 problemCount = emptyElementCount + failedElementCount;
 	if (problemCount == 0)
-		ACAPI_WriteReport ("GLB export kész.\nHibás vagy kihagyott elem: 0", true);
+		ACAPI_WriteReport ("GLB export complete.\nFailed or skipped elements: 0", true);
 	else
-		ACAPI_WriteReport (GS::UniString::Printf ("GLB export kész.\nHibás vagy kihagyott elemek: %d", problemCount) + elementReport, true);
+		ACAPI_WriteReport (GS::UniString::Printf ("GLB export complete.\nFailed or skipped elements: %d", problemCount) + elementReport, true);
 }

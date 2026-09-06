@@ -1,2 +1,5 @@
 build/
+build-release/
+.release-stage/
+dist/*
 .DS_Store

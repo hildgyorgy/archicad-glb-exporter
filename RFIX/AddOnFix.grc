@@ -7,12 +7,11 @@
 }
 
 'STR#' ADDON_INFO "Add-On Name and Description" {
-    "GLB Exporter Hello"
-    "Minimal Archicad 29 menu and message test."
+    "Drop & View GLB Exporter"
+    "Exports selected elements from the active Archicad 3D window to GLB."
 }
 
 'STR#' ADDON_MENU "Menu" {
-    "GLB Exporter"
-    "Kijelölt elemek adatainak kiolvasása"
-    "Kijelölt épületelemek exportálása GLB-be...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
+    "Drop & View GLB Exporter"
+    "Export selected 3D elements to GLB...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
 }

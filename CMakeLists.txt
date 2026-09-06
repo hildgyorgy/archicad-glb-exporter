@@ -12,6 +12,7 @@ function (SetCompilerOptions target)
 		target_compile_options (${target} PUBLIC /W3 /WX /wd4996 /Zc:wchar_t-)
 	else ()
 		target_compile_options (${target} PUBLIC -Wall -Werror -fvisibility=hidden
+			"$<$<CONFIG:Release>:-O2>"
 			-Wno-multichar
 			-Wno-ctor-dtor-privacy
 			-Wno-invalid-offsetof
@@ -59,14 +60,14 @@ if (WIN32)
 	set (CMAKE_GENERATOR_TOOLSET v143)
 	set (CMAKE_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 else ()
-	set (CMAKE_OSX_DEPLOYMENT_TARGET 15.1)
+	set (CMAKE_OSX_DEPLOYMENT_TARGET 26.0)
+	set (CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "Supported macOS architecture" FORCE)
 	if (CMAKE_GENERATOR STREQUAL Xcode)
-		set (CMAKE_OSX_ARCHITECTURES "$(ARCHS_STANDARD)" CACHE INTERNAL "" FORCE)
 		set (CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH "NO")
 	endif ()
 endif ()
 set (AC_API_DEVKIT_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "API DevKit directory.")
-set (AC_ADDON_NAME "GLBExporterHello" CACHE STRING "Add-On name.")
+set (AC_ADDON_NAME "DropViewGLBExporter" CACHE STRING "Add-On name.")
 set (AC_ADDON_LANGUAGE "INT" CACHE STRING "Add-On language code.")
 
 message (STATUS "APIDevKit directory: ${AC_API_DEVKIT_DIR}")
@@ -179,6 +180,12 @@ else ()
 	set_target_properties (AddOn PROPERTIES BUNDLE TRUE)
 	set_target_properties (AddOn PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_LIST_DIR}/${AddOnResourcesFolder}/RFIX.mac/Info.plist")
 	set_target_properties (AddOn PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>")
+	if (CMAKE_GENERATOR STREQUAL Xcode)
+		set_target_properties (AddOn PROPERTIES
+			XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+			XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.hildgyorgy.dropview.glbexporter"
+		)
+	endif ()
 endif ()
 
 if (WIN32)

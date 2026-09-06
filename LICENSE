@@ -1,0 +1,82 @@
+Drop & View GLB Exporter — Free Add-On Use / Proprietary Licence
+Copyright (c) 2026 György Hild
+
+1. Scope
+
+These terms apply to the original Drop & View GLB Exporter code,
+compiled add-on and documentation to the extent that their rights are
+held by György Hild (the "Author"). Third-party components and content
+are excluded and remain subject to their own licences and rights.
+
+This is a proprietary licence, not an open-source licence. Rights not
+expressly granted below are reserved, subject to applicable law.
+
+2. Free use of the add-on
+
+You may install and use the unmodified compiled add-on distributed by
+the Author free of charge for personal, educational and commercial
+purposes, including paid professional work and client presentations.
+
+3. Your projects and exported files
+
+The Author claims no rights in Archicad projects processed by the add-on
+or in GLB files produced from them. You remain responsible for any
+third-party rights in your models, textures and other content.
+
+4. Source code, modification and redistribution
+
+Unless separately authorised in writing by the Author, and except as
+permitted by applicable law or the platform permissions described below,
+you may not:
+
+- reproduce or reuse the proprietary source code in another product;
+- modify and distribute the add-on or its source code;
+- sell, sublicense, rebrand or otherwise supply copies of the add-on;
+- distribute the compiled add-on from a source other than the Author's
+  official release page; or
+- remove copyright, licence or attribution notices from copies where
+  those notices are required.
+
+You may share a link to the Author's official release page.
+
+5. GitHub and statutory permissions
+
+Where this repository is public on GitHub, viewing and forking through
+GitHub are permitted to the extent provided by GitHub's Terms of Service.
+These terms do not withdraw or override those platform permissions. They
+do not grant additional rights to build, deploy or redistribute a fork.
+
+Nothing in these terms limits rights or exceptions that cannot lawfully
+be excluded, including any applicable software-use, backup, study,
+testing or interoperability rights. These terms do not claim ownership
+of general ideas, methods, file formats or functionality.
+
+6. Third-party components
+
+Third-party code retains its respective licence. In particular, Mapbox
+Earcut is licensed under the ISC License. These proprietary terms do not
+restrict rights granted by third-party licences. Applicable third-party
+notices and licence requirements must be preserved.
+
+7. Experimental software and no warranty
+
+The add-on is experimental software provided "as is" and "as available",
+without warranties of any kind to the extent permitted by applicable
+law. Model geometry, materials, measurements, file compatibility and
+fitness for professional use are not guaranteed. Exported files must be
+checked against the original Archicad project and design documents.
+
+8. Liability
+
+To the extent permitted by applicable law, the Author is not liable for
+loss or damage arising from use of or inability to use the add-on.
+Nothing in these terms excludes liability or user rights that cannot
+lawfully be excluded.
+
+9. Additional permission
+
+For permission to reuse code, modify, redistribute or rebrand the add-on,
+or for other licensing enquiries, contact:
+
+György Hild
+hild.gyorgy@freemail.hu
