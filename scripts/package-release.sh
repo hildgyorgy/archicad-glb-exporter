@@ -27,19 +27,6 @@ fi
 chmod -R u+w "${bundle_path}"
 xattr -cr "${bundle_path}"
 
-if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-    codesign --force --deep --strict --options runtime --timestamp \
-        --sign "${CODESIGN_IDENTITY}" "${bundle_path}"
-elif [[ "${ALLOW_ADHOC:-0}" == "1" ]]; then
-    codesign --force --deep --strict --sign - "${bundle_path}"
-else
-    print -u2 "Set CODESIGN_IDENTITY to a Developer ID Application identity."
-    print -u2 "For a local test package only, set ALLOW_ADHOC=1."
-    exit 1
-fi
-
-codesign --verify --deep --strict --verbose=2 "${bundle_path}"
-
 rm -rf "${stage_parent}"
 mkdir -p "${stage_dir}" "${project_root}/dist"
 ditto "${bundle_path}" "${stage_dir}/DropViewGLBExporter.bundle"
@@ -47,8 +34,45 @@ cp "${project_root}/README.md" "${stage_dir}/README.md"
 cp "${project_root}/LICENSE" "${stage_dir}/LICENSE.txt"
 cp "${project_root}/THIRD_PARTY_NOTICES.txt" "${stage_dir}/THIRD_PARTY_NOTICES.txt"
 
+staged_bundle="${stage_dir}/DropViewGLBExporter.bundle"
+xattr -cr "${staged_bundle}"
+
+# Sign only after the bundle reaches its final staging location. Copying a signed
+# bundle can invalidate its Mach-O signature on some macOS/File Provider setups.
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    codesign --force --deep --strict --options runtime --timestamp \
+        --sign "${CODESIGN_IDENTITY}" "${staged_bundle}"
+elif [[ "${ALLOW_ADHOC:-0}" == "1" ]]; then
+    codesign --force --deep --strict --sign - "${staged_bundle}"
+else
+    print -u2 "Set CODESIGN_IDENTITY to a Developer ID Application identity."
+    print -u2 "For a local test package only, set ALLOW_ADHOC=1."
+    exit 1
+fi
+
+codesign --verify --deep --strict --verbose=2 "${staged_bundle}"
+
 rm -f "${output_zip}"
-(cd "${stage_parent}" && /usr/bin/zip -qry "${output_zip}" "${archive_name}")
+ditto -c -k --keepParent "${stage_dir}" "${output_zip}"
+
+# Verify the artifact users will actually download, rather than only the staging
+# copy that preceded compression.
+verify_dir="${temporary_root}/verify"
+rm -rf "${verify_dir}"
+mkdir -p "${verify_dir}"
+ditto -x -k "${output_zip}" "${verify_dir}"
+codesign --verify --deep --strict --verbose=2 \
+    "${verify_dir}/${archive_name}/DropViewGLBExporter.bundle"
+
+if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+    if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
+        print -u2 "NOTARY_PROFILE requires a Developer ID CODESIGN_IDENTITY."
+        exit 1
+    fi
+    xcrun notarytool submit "${output_zip}" \
+        --keychain-profile "${NOTARY_PROFILE}" --wait
+fi
+
 shasum -a 256 "${output_zip}" > "${output_zip}.sha256"
 
 print "Created ${output_zip}"
