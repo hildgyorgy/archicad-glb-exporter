@@ -6,6 +6,44 @@
 #include <cmath>
 #include <set>
 
+static GS::Optional<API_Guid> windowEventHandlerId;
+
+static bool Is3DModelWindowActive ()
+{
+	API_WindowInfo windowInfo {};
+	return ACAPI_Window_GetCurrentWindow (&windowInfo) == NoError && windowInfo.typeID == APIWind_3DModelID;
+}
+
+static void SetExportMenuEnabled (bool enabled)
+{
+	API_MenuItemRef menuItem {};
+	menuItem.menuResID = ADDON_MENU;
+	menuItem.itemIndex = 1;
+
+	GSFlags flags = 0;
+	if (ACAPI_MenuItem_GetMenuItemFlags (&menuItem, &flags) != NoError)
+		return;
+
+	if (enabled)
+		flags &= ~API_MenuItemDisabled;
+	else
+		flags |= API_MenuItemDisabled;
+	ACAPI_MenuItem_SetMenuItemFlags (&menuItem, &flags);
+}
+
+class ExportWindowEventHandler final : public API_IWindowEventHandler {
+public:
+	void OnWindowBroughtForward (const API_WindowInfo& window) const override
+	{
+		SetExportMenuEnabled (window.typeID == APIWind_3DModelID);
+	}
+
+	void OnWindowSentBackward (const API_WindowInfo&) const override
+	{
+		SetExportMenuEnabled (false);
+	}
+};
+
 [[maybe_unused]] static void ReportSelectedWall3D ()
 {
 	API_SelectionInfo selectionInfo {};
@@ -133,8 +171,14 @@
 static GSErrCode MenuCommandHandler (const API_MenuParams* params)
 {
 	if (params->menuItemRef.menuResID == ADDON_MENU) {
-		if (params->menuItemRef.itemIndex == 1)
+		if (params->menuItemRef.itemIndex == 1) {
+			if (!Is3DModelWindowActive ()) {
+				SetExportMenuEnabled (false);
+				ACAPI_WriteReport ("A GLB export csak az aktív 3D ablakból indítható.", true);
+				return NoError;
+			}
 			ExportSelectedElementsToGlb ();
+		}
 	}
     return NoError;
 }
@@ -157,18 +201,21 @@ GSErrCode Initialize ()
 	if (error != NoError)
 		return error;
 
-	API_MenuItemRef menuItem {};
-	menuItem.menuResID = ADDON_MENU;
-	menuItem.itemIndex = 1;
-	GSFlags flags = 0;
-	if (ACAPI_MenuItem_GetMenuItemFlags (&menuItem, &flags) == NoError) {
-		flags &= ~API_MenuItemDisabled;
-		ACAPI_MenuItem_SetMenuItemFlags (&menuItem, &flags);
-	}
+	windowEventHandlerId.New ();
+	const GSErrCode notificationError = ACAPI_Notification_RegisterEventHandler (
+		GS::NewOwned<ExportWindowEventHandler> (), *windowEventHandlerId);
+	if (notificationError != NoError)
+		windowEventHandlerId.Clear ();
+
+	SetExportMenuEnabled (Is3DModelWindowActive ());
 	return NoError;
 }
 
 GSErrCode FreeData ()
 {
+	if (windowEventHandlerId.HasValue ()) {
+		ACAPI_Notification_UnregisterEventHandler (*windowEventHandlerId);
+		windowEventHandlerId.Clear ();
+	}
     return NoError;
 }

@@ -14,6 +14,7 @@
 #include <limits>
 #include <map>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -23,9 +24,30 @@ struct Vec2 { float u, v; };
 struct MaterialGroup {
 	Int32 sourceIndex = 0;
 	API_MaterialType material {};
+	std::string name;
+	bool alphaMask = false;
 	std::vector<std::uint32_t> indices;
 	std::vector<char> imageData;
 	std::string imageMimeType;
+};
+
+class Scoped3DWindowSight {
+public:
+	Scoped3DWindowSight () : error (ACAPI_Sight_SelectSight (nullptr, &previousSight)) {}
+
+	~Scoped3DWindowSight ()
+	{
+		if (error == NoError) {
+			void* ignoredSight = nullptr;
+			ACAPI_Sight_SelectSight (previousSight, &ignoredSight);
+		}
+	}
+
+	GSErrCode GetError () const { return error; }
+
+private:
+	void* previousSight = nullptr;
+	GSErrCode error = APIERR_GENERAL;
 };
 
 template<class ElementType>
@@ -104,6 +126,33 @@ void LoadTextureImage (const IO::Location* location, MaterialGroup& group)
 		group.imageMimeType = "image/jpeg";
 	else
 		group.imageData.clear ();
+
+	// PNG color types 4 (gray + alpha) and 6 (RGBA) contain an alpha channel.
+	// Archicad uses these for cutout surfaces such as foliage and chain-link mesh.
+	if (group.imageMimeType == "image/png" && size > 25 && (bytes[25] == 4 || bytes[25] == 6))
+		group.alphaMask = true;
+}
+
+std::string EscapeJsonString (const std::string& value)
+{
+	std::ostringstream escaped;
+	for (const unsigned char character : value) {
+		switch (character) {
+			case '\"': escaped << "\\\""; break;
+			case '\\': escaped << "\\\\"; break;
+			case '\b': escaped << "\\b"; break;
+			case '\f': escaped << "\\f"; break;
+			case '\n': escaped << "\\n"; break;
+			case '\r': escaped << "\\r"; break;
+			case '\t': escaped << "\\t"; break;
+			default:
+				if (character < 0x20)
+					escaped << "\\u" << std::hex << std::setw (4) << std::setfill ('0') << static_cast<int> (character) << std::dec;
+				else
+					escaped << static_cast<char> (character);
+		}
+	}
+	return escaped.str ();
 }
 
 void AppendU32 (std::vector<char>& data, std::uint32_t value)
@@ -206,6 +255,9 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
             modelElements.Push (element);
             continue;
         }
+		// Depending on the element family, a body in the 3D sight can refer either
+		// to the parent or to one of its physical subelements. Keep both GUIDs.
+		modelElements.Push (element);
 
         API_ElementMemo memo {};
         const UInt64 memoMask = element.type == API_ColumnID ? APIMemoMask_ColumnSegment :
@@ -310,7 +362,34 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
     emptyElementCount = 0;
 	failedElementCount = 0;
 	std::map<Int32, std::size_t> materialToGroup;
-	for (const API_Elem_Head& element : elements) {
+	Int32 visibleBodyCount = 0;
+	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
+		return false;
+	GS::HashSet<API_Guid> exportGuids;
+	for (const API_Elem_Head& element : elements)
+		exportGuids.Add (element.guid);
+	struct VisibleBodyGroup {
+		API_Elem_Head parent {};
+		std::vector<Int32> bodyIndices;
+	};
+	std::vector<VisibleBodyGroup> visibleBodyGroups;
+	for (Int32 bodyIndex = 1; bodyIndex <= visibleBodyCount; ++bodyIndex) {
+		API_Component3D bodyComponent {};
+		bodyComponent.header.typeID = API_BodyID;
+		bodyComponent.header.index = bodyIndex;
+		if (ACAPI_ModelAccess_GetComponent (&bodyComponent) != NoError || !exportGuids.Contains (bodyComponent.body.parent.guid))
+			continue;
+		auto group = std::find_if (visibleBodyGroups.begin (), visibleBodyGroups.end (), [&] (const VisibleBodyGroup& candidate) {
+			return candidate.parent.guid == bodyComponent.body.parent.guid;
+		});
+		if (group == visibleBodyGroups.end ()) {
+			visibleBodyGroups.push_back ({bodyComponent.body.parent, {bodyIndex}});
+		} else {
+			group->bodyIndices.push_back (bodyIndex);
+		}
+	}
+	for (const VisibleBodyGroup& visibleBodyGroup : visibleBodyGroups) {
+	const API_Elem_Head& element = visibleBodyGroup.parent;
     const char* typeName = GetElementTypeName (element.type);
     const GS::UniString elementGuid = APIGuid2GSGuid (element.guid).ToUniString ();
     const std::size_t positionsBefore = positions.size ();
@@ -325,14 +404,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
     Int32 skippedPolygonCount = 0;
     std::string lastPolygonError;
     const auto trianglesBefore = [&] () { std::size_t n = 0; for (const auto& g : materialGroups) n += g.indices.size () / 3; return n; } ();
-    API_ElemInfo3D info {};
-    const GSErrCode modelError = ACAPI_ModelAccess_Get3DInfo (element, &info);
-    if (modelError != NoError || info.lbody < info.fbody) {
-        elementReport += GS::UniString::Printf ("\nHIBA – %s, GUID: %s: nincs elérhető 3D test (API-hiba: %d).", typeName, elementGuid.ToCStr ().Get (), modelError);
-        ++emptyElementCount;
-        continue;
-    }
-	for (Int32 bodyIndex = info.fbody; bodyIndex <= info.lbody; ++bodyIndex) {
+	for (Int32 bodyIndex : visibleBodyGroup.bodyIndices) {
 		API_Component3D component {};
 		component.header.typeID = API_BodyID;
 		component.header.index = bodyIndex;
@@ -385,6 +457,9 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 					MaterialGroup group;
 					group.sourceIndex = polygon.iumat;
 					group.material = materialComponent.umat.mater;
+					group.name = group.material.head.name;
+					if (group.name.empty ())
+						group.name = "Archicad Surface " + std::to_string (polygon.iumat);
 					IO::Location* textureLocation = materialComponent.umat.mater.texture.fileLoc;
 					group.material.texture.fileLoc = nullptr;
 					LoadTextureImage (textureLocation, group);
@@ -452,56 +527,101 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	const std::vector<Vec3>& normals, const std::vector<Vec2>& textureCoordinates, const std::vector<MaterialGroup>& materialGroups)
 {
+	struct PackedGeometry {
+		std::vector<Vec3> positions;
+		std::vector<Vec3> normals;
+		std::vector<Vec2> textureCoordinates;
+		std::vector<std::uint32_t> indices;
+		Vec3 minimum { std::numeric_limits<float>::max (), std::numeric_limits<float>::max (), std::numeric_limits<float>::max () };
+		Vec3 maximum { -minimum.x, -minimum.y, -minimum.z };
+	};
+	std::vector<PackedGeometry> packedGeometry (materialGroups.size ());
+	for (std::size_t groupIndex = 0; groupIndex < materialGroups.size (); ++groupIndex) {
+		auto& packed = packedGeometry[groupIndex];
+		std::unordered_map<std::uint32_t, std::uint32_t> remappedIndices;
+		for (const std::uint32_t sourceIndex : materialGroups[groupIndex].indices) {
+			auto remapped = remappedIndices.find (sourceIndex);
+			if (remapped == remappedIndices.end ()) {
+				const std::uint32_t targetIndex = static_cast<std::uint32_t> (packed.positions.size ());
+				remappedIndices[sourceIndex] = targetIndex;
+				packed.positions.push_back (positions.at (sourceIndex));
+				packed.normals.push_back (normals.at (sourceIndex));
+				packed.textureCoordinates.push_back (textureCoordinates.at (sourceIndex));
+				const Vec3& point = packed.positions.back ();
+				packed.minimum.x = std::min (packed.minimum.x, point.x);
+				packed.minimum.y = std::min (packed.minimum.y, point.y);
+				packed.minimum.z = std::min (packed.minimum.z, point.z);
+				packed.maximum.x = std::max (packed.maximum.x, point.x);
+				packed.maximum.y = std::max (packed.maximum.y, point.y);
+				packed.maximum.z = std::max (packed.maximum.z, point.z);
+				packed.indices.push_back (targetIndex);
+			} else {
+				packed.indices.push_back (remapped->second);
+			}
+		}
+	}
+
 	std::vector<char> binary;
-	const std::uint32_t positionOffset = 0;
-	AppendBytes (binary, positions.data (), positions.size () * sizeof (Vec3));
-	const std::uint32_t normalOffset = static_cast<std::uint32_t> (binary.size ());
-	AppendBytes (binary, normals.data (), normals.size () * sizeof (Vec3));
-	const std::uint32_t textureCoordinateOffset = static_cast<std::uint32_t> (binary.size ());
-	AppendBytes (binary, textureCoordinates.data (), textureCoordinates.size () * sizeof (Vec2));
-	std::vector<std::uint32_t> indexOffsets;
-	for (const MaterialGroup& group : materialGroups) {
+	std::vector<std::uint32_t> positionOffsets, normalOffsets, textureCoordinateOffsets, indexOffsets;
+	for (const PackedGeometry& packed : packedGeometry) {
+		positionOffsets.push_back (static_cast<std::uint32_t> (binary.size ()));
+		AppendBytes (binary, packed.positions.data (), packed.positions.size () * sizeof (Vec3));
+		normalOffsets.push_back (static_cast<std::uint32_t> (binary.size ()));
+		AppendBytes (binary, packed.normals.data (), packed.normals.size () * sizeof (Vec3));
+		textureCoordinateOffsets.push_back (static_cast<std::uint32_t> (binary.size ()));
+		AppendBytes (binary, packed.textureCoordinates.data (), packed.textureCoordinates.size () * sizeof (Vec2));
 		indexOffsets.push_back (static_cast<std::uint32_t> (binary.size ())); 
-		AppendBytes (binary, group.indices.data (), group.indices.size () * sizeof (std::uint32_t));
+		AppendBytes (binary, packed.indices.data (), packed.indices.size () * sizeof (std::uint32_t));
 	}
 	std::vector<int> imageBufferViews (materialGroups.size (), -1);
 	std::vector<int> materialTextureIndices (materialGroups.size (), -1);
+	std::vector<std::uint32_t> imageOffsets (materialGroups.size (), 0);
 	int textureCount = 0;
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (materialGroups[i].imageData.empty ()) continue;
 		while (binary.size () % 4 != 0) binary.push_back (0);
-		imageBufferViews[i] = static_cast<int> (3 + materialGroups.size () + textureCount);
+		imageBufferViews[i] = static_cast<int> (4 * materialGroups.size () + textureCount);
 		materialTextureIndices[i] = textureCount++;
+		imageOffsets[i] = static_cast<std::uint32_t> (binary.size ());
 		AppendBytes (binary, materialGroups[i].imageData.data (), materialGroups[i].imageData.size ());
 	}
 	while (binary.size () % 4 != 0) binary.push_back (0);
-
-	Vec3 minimum { std::numeric_limits<float>::max (), std::numeric_limits<float>::max (), std::numeric_limits<float>::max () };
-	Vec3 maximum { -minimum.x, -minimum.y, -minimum.z };
-	for (const Vec3& p : positions) {
-		minimum.x = std::min (minimum.x, p.x); minimum.y = std::min (minimum.y, p.y); minimum.z = std::min (minimum.z, p.z);
-		maximum.x = std::max (maximum.x, p.x); maximum.y = std::max (maximum.y, p.y); maximum.z = std::max (maximum.z, p.z);
-	}
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter v37\"},"
-		<< "\"scene\":0,\"scenes\":[{\"nodes\":[0]}],\"nodes\":[{\"mesh\":0,\"name\":\"Archicad Elements\"}],"
-		<< "\"meshes\":[{\"primitives\":[";
+		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Archicad GLB Exporter v41\"},"
+		<< "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (i > 0) json << ',';
-		json << "{\"attributes\":{\"POSITION\":0,\"NORMAL\":1,\"TEXCOORD_0\":2},\"indices\":" << (3 + i) << ",\"material\":" << i << '}';
+		json << i;
 	}
-	json << "]}],\"materials\":[";
+	json << "]}],\"nodes\":[";
+	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
+		if (i > 0) json << ',';
+		json << "{\"mesh\":" << i << ",\"name\":\"" << EscapeJsonString (materialGroups[i].name) << "\"}";
+	}
+	json << "],\"meshes\":[";
+	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
+		if (i > 0) json << ',';
+		json << "{\"name\":\"" << EscapeJsonString (materialGroups[i].name)
+			<< "\",\"primitives\":[{\"attributes\":{\"POSITION\":" << (4 * i)
+			<< ",\"NORMAL\":" << (4 * i + 1) << ",\"TEXCOORD_0\":" << (4 * i + 2)
+			<< "},\"indices\":" << (4 * i + 3) << ",\"material\":" << i << "}]}";
+	}
+	json << "],\"materials\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (i > 0) json << ',';
 		const API_MaterialType& material = materialGroups[i].material;
 		const double alpha = 1.0 - material.transpPc / 100.0;
-		json << "{\"name\":\"Archicad Surface " << materialGroups[i].sourceIndex << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":["
+		json << "{\"name\":\"" << EscapeJsonString (materialGroups[i].name) << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":["
 			<< material.surfaceRGB.f_red << ',' << material.surfaceRGB.f_green << ',' << material.surfaceRGB.f_blue << ',' << alpha
 			<< "],\"metallicFactor\":0,\"roughnessFactor\":1";
 		if (materialTextureIndices[i] >= 0) json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i] << '}';
 		json << '}';
-		if (alpha < 1.0) json << ",\"alphaMode\":\"BLEND\"";
+		if (alpha < 1.0)
+			json << ",\"alphaMode\":\"BLEND\"";
+		else if (materialGroups[i].alphaMask)
+			json << ",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.5";
+		json << ",\"doubleSided\":true";
 		json << '}';
 	}
 	json << ']';
@@ -530,25 +650,32 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 		}
 		json << ']';
 	}
-	json << ','
-		<< "\"buffers\":[{\"byteLength\":" << binary.size () << "}],"
-		<< "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":" << positionOffset << ",\"byteLength\":" << positions.size () * sizeof (Vec3) << ",\"target\":34962},"
-		<< "{\"buffer\":0,\"byteOffset\":" << normalOffset << ",\"byteLength\":" << normals.size () * sizeof (Vec3) << ",\"target\":34962},"
-		<< "{\"buffer\":0,\"byteOffset\":" << textureCoordinateOffset << ",\"byteLength\":" << textureCoordinates.size () * sizeof (Vec2) << ",\"target\":34962}";
-	for (std::size_t i = 0; i < materialGroups.size (); ++i)
-		json << ", {\"buffer\":0,\"byteOffset\":" << indexOffsets[i] << ",\"byteLength\":" << materialGroups[i].indices.size () * sizeof (std::uint32_t) << ",\"target\":34963}";
-	std::uint32_t imageOffset = indexOffsets.empty () ? textureCoordinateOffset : indexOffsets.back () + static_cast<std::uint32_t> (materialGroups.back ().indices.size () * sizeof (std::uint32_t));
-	for (std::size_t i = 0; i < materialGroups.size (); ++i) if (imageBufferViews[i] >= 0) {
-		while (imageOffset % 4 != 0) ++imageOffset;
-		json << ", {\"buffer\":0,\"byteOffset\":" << imageOffset << ",\"byteLength\":" << materialGroups[i].imageData.size () << '}';
-		imageOffset += static_cast<std::uint32_t> (materialGroups[i].imageData.size ());
+	json << ",\"buffers\":[{\"byteLength\":" << binary.size () << "}],\"bufferViews\":[";
+	bool firstBufferView = true;
+	for (std::size_t i = 0; i < packedGeometry.size (); ++i) {
+		if (!firstBufferView) json << ',';
+		firstBufferView = false;
+		json << "{\"buffer\":0,\"byteOffset\":" << positionOffsets[i] << ",\"byteLength\":" << packedGeometry[i].positions.size () * sizeof (Vec3) << ",\"target\":34962},"
+			<< "{\"buffer\":0,\"byteOffset\":" << normalOffsets[i] << ",\"byteLength\":" << packedGeometry[i].normals.size () * sizeof (Vec3) << ",\"target\":34962},"
+			<< "{\"buffer\":0,\"byteOffset\":" << textureCoordinateOffsets[i] << ",\"byteLength\":" << packedGeometry[i].textureCoordinates.size () * sizeof (Vec2) << ",\"target\":34962},"
+			<< "{\"buffer\":0,\"byteOffset\":" << indexOffsets[i] << ",\"byteLength\":" << packedGeometry[i].indices.size () * sizeof (std::uint32_t) << ",\"target\":34963}";
 	}
-	json << "],"
-		<< "\"accessors\":[{\"bufferView\":0,\"componentType\":5126,\"count\":" << positions.size () << ",\"type\":\"VEC3\",\"min\":[" << minimum.x << ',' << minimum.y << ',' << minimum.z << "],\"max\":[" << maximum.x << ',' << maximum.y << ',' << maximum.z << "]},"
-		<< "{\"bufferView\":1,\"componentType\":5126,\"count\":" << normals.size () << ",\"type\":\"VEC3\"},"
-		<< "{\"bufferView\":2,\"componentType\":5126,\"count\":" << textureCoordinates.size () << ",\"type\":\"VEC2\"}";
-	for (std::size_t i = 0; i < materialGroups.size (); ++i)
-		json << ", {\"bufferView\":" << (3 + i) << ",\"componentType\":5125,\"count\":" << materialGroups[i].indices.size () << ",\"type\":\"SCALAR\"}";
+	for (std::size_t i = 0; i < materialGroups.size (); ++i) if (imageBufferViews[i] >= 0) {
+		if (!firstBufferView) json << ',';
+		firstBufferView = false;
+		json << "{\"buffer\":0,\"byteOffset\":" << imageOffsets[i] << ",\"byteLength\":" << materialGroups[i].imageData.size () << '}';
+	}
+	json << "],\"accessors\":[";
+	for (std::size_t i = 0; i < packedGeometry.size (); ++i) {
+		if (i > 0) json << ',';
+		const PackedGeometry& packed = packedGeometry[i];
+		json << "{\"bufferView\":" << (4 * i) << ",\"componentType\":5126,\"count\":" << packed.positions.size ()
+			<< ",\"type\":\"VEC3\",\"min\":[" << packed.minimum.x << ',' << packed.minimum.y << ',' << packed.minimum.z
+			<< "],\"max\":[" << packed.maximum.x << ',' << packed.maximum.y << ',' << packed.maximum.z << "]},"
+			<< "{\"bufferView\":" << (4 * i + 1) << ",\"componentType\":5126,\"count\":" << packed.normals.size () << ",\"type\":\"VEC3\"},"
+			<< "{\"bufferView\":" << (4 * i + 2) << ",\"componentType\":5126,\"count\":" << packed.textureCoordinates.size () << ",\"type\":\"VEC2\"},"
+			<< "{\"bufferView\":" << (4 * i + 3) << ",\"componentType\":5125,\"count\":" << packed.indices.size () << ",\"type\":\"SCALAR\"}";
+	}
 	json << "]}";
 	std::string jsonData = json.str ();
 	while (jsonData.size () % 4 != 0) jsonData.push_back (' ');
@@ -610,6 +737,11 @@ void ExportSelectedElementsToGlb ()
     Int32 failedElementCount = 0;
     GS::UniString elementReport;
     try {
+		Scoped3DWindowSight sight;
+		if (sight.GetError () != NoError) {
+			ACAPI_WriteReport (GS::UniString::Printf ("Az aktuális 3D ablak modellje nem érhető el (hiba: %d). Nem készült GLB.", sight.GetError ()), true);
+			return;
+		}
         if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, elementReport)) {
             ACAPI_WriteReport ("A kijelölt elemek 3D hálója nem exportálható.", true);
             return;
