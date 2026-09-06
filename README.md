@@ -28,8 +28,8 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 
 ## Installation
 
-1. Download the latest macOS ZIP from [GitHub Releases](https://github.com/hildgyorgy/archicad-glb-exporter/releases).
-2. Extract the ZIP.
+1. Download the latest macOS DMG from [GitHub Releases](https://github.com/hildgyorgy/archicad-glb-exporter/releases).
+2. Open the DMG.
 3. In Archicad 29, open **Options > Add-On Manager**.
 4. Choose **Add**, then select `DropViewGLBExporter.bundle`.
 5. Confirm that **Drop & View GLB Exporter** appears as an available add-on.

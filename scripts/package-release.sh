@@ -8,7 +8,7 @@ temporary_root="${TMPDIR%/}/dropview-glb-exporter-release"
 build_dir="${temporary_root}/build"
 stage_parent="${temporary_root}/stage"
 stage_dir="${stage_parent}/${archive_name}"
-output_zip="${project_root}/dist/${archive_name}.zip"
+output_dmg="${project_root}/dist/${archive_name}.dmg"
 devkit_dir="${AC_API_DEVKIT_DIR:-${HOME}/Downloads/API}"
 
 rm -rf "${build_dir}"
@@ -29,7 +29,7 @@ xattr -cr "${bundle_path}"
 
 rm -rf "${stage_parent}"
 mkdir -p "${stage_dir}" "${project_root}/dist"
-ditto "${bundle_path}" "${stage_dir}/DropViewGLBExporter.bundle"
+ditto --norsrc "${bundle_path}" "${stage_dir}/DropViewGLBExporter.bundle"
 cp "${project_root}/README.md" "${stage_dir}/README.md"
 cp "${project_root}/LICENSE" "${stage_dir}/LICENSE.txt"
 cp "${project_root}/THIRD_PARTY_NOTICES.txt" "${stage_dir}/THIRD_PARTY_NOTICES.txt"
@@ -52,28 +52,43 @@ fi
 
 codesign --verify --deep --strict --verbose=2 "${staged_bundle}"
 
-rm -f "${output_zip}"
-ditto -c -k --keepParent "${stage_dir}" "${output_zip}"
+rm -f "${output_dmg}" "${output_dmg}.sha256"
+COPYFILE_DISABLE=1 hdiutil create \
+    -volname "Drop & View GLB Exporter" \
+    -srcfolder "${stage_dir}" \
+    -format UDZO -ov "${output_dmg}"
 
-# Verify the artifact users will actually download, rather than only the staging
-# copy that preceded compression.
+if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+    codesign --force --timestamp --sign "${CODESIGN_IDENTITY}" "${output_dmg}"
+else
+    codesign --force --sign - "${output_dmg}"
+fi
+
+codesign --verify --strict --verbose=2 "${output_dmg}"
+hdiutil verify "${output_dmg}"
+
+# Verify the bundle from the disk image users will actually download.
 verify_dir="${temporary_root}/verify"
 rm -rf "${verify_dir}"
-mkdir -p "${verify_dir}"
-ditto -x -k "${output_zip}" "${verify_dir}"
-codesign --verify --deep --strict --verbose=2 \
-    "${verify_dir}/${archive_name}/DropViewGLBExporter.bundle"
+mount_dir="${verify_dir}/mount"
+mkdir -p "${mount_dir}"
+hdiutil attach -readonly -nobrowse -mountpoint "${mount_dir}" "${output_dmg}"
+codesign --verify --deep --strict --verbose=2 "${mount_dir}/DropViewGLBExporter.bundle"
+hdiutil detach "${mount_dir}"
 
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
     if [[ -z "${CODESIGN_IDENTITY:-}" ]]; then
         print -u2 "NOTARY_PROFILE requires a Developer ID CODESIGN_IDENTITY."
         exit 1
     fi
-    xcrun notarytool submit "${output_zip}" \
+    xcrun notarytool submit "${output_dmg}" \
         --keychain-profile "${NOTARY_PROFILE}" --wait
+    xcrun stapler staple "${output_dmg}"
+    xcrun stapler validate "${output_dmg}"
 fi
 
-shasum -a 256 "${output_zip}" > "${output_zip}.sha256"
+cd "${project_root}/dist"
+shasum -a 256 "${archive_name}.dmg" > "${archive_name}.dmg.sha256"
 
-print "Created ${output_zip}"
-cat "${output_zip}.sha256"
+print "Created ${output_dmg}"
+cat "${output_dmg}.sha256"

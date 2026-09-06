@@ -24,6 +24,6 @@ This build is intended for evaluation and feedback. Compare every exported model
 
 ## Installation
 
-Extract the ZIP, then add `DropViewGLBExporter.bundle` from Archicad's **Options > Add-On Manager**.
+Open the DMG, then add `DropViewGLBExporter.bundle` from Archicad's **Options > Add-On Manager**.
 
 See the included README for usage, limitations, privacy and licence information.
