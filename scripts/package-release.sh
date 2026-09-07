@@ -2,71 +2,77 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-release_version="${RELEASE_VERSION:-0.1.0-alpha}"
+release_version="${RELEASE_VERSION:-0.2.0-alpha}"
 temporary_root="${TMPDIR%/}/dropview-glb-exporter-release"
-build_dir="${temporary_root}/build"
-stage_parent="${temporary_root}/stage"
-devkit_dir="${AC_API_DEVKIT_DIR:-${HOME}/Downloads/API}"
-acapinc_file="${devkit_dir}/Support/Inc/ACAPinc.h"
+stage_dir="${temporary_root}/stage/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}"
+output_dmg="${project_root}/dist/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}.dmg"
+ac28_devkit="${AC28_API_DEVKIT_DIR:-/tmp/ac-devkits/28}"
+ac29_devkit="${AC29_API_DEVKIT_DIR:-${HOME}/Downloads/API}"
 
-if [[ ! -f "${acapinc_file}" ]]; then
-    print -u2 "Archicad API header not found: ${acapinc_file}"
-    exit 1
-fi
+detect_version () {
+    local devkit_dir="$1"
+    local acapinc_file="${devkit_dir}/Support/Inc/ACAPinc.h"
+    if [[ ! -f "${acapinc_file}" ]]; then
+        print -u2 "Archicad API header not found: ${acapinc_file}"
+        return 1
+    fi
+    sed -nE 's/^[[:space:]]*#define[[:space:]]+ServerMainVers_([0-9][0-9])00.*/\1/p' "${acapinc_file}" | tail -n 1
+}
 
-archicad_version="$(sed -nE 's/^[[:space:]]*#define[[:space:]]+ServerMainVers_([0-9][0-9])00.*/\1/p' "${acapinc_file}" | tail -n 1)"
-case "${archicad_version}" in
-    28|29) ;;
-    *)
-        print -u2 "Unsupported or undetected Archicad version: ${archicad_version:-unknown}"
-        exit 1
-        ;;
-esac
+build_and_stage () {
+    local expected_version="$1"
+    local devkit_dir="$2"
+    local detected_version="$(detect_version "${devkit_dir}")"
+    local build_dir="${temporary_root}/build-ac${expected_version}"
+    local version_dir="${stage_dir}/Archicad ${expected_version}"
 
-archive_name="DropView-GLB-Exporter-AC${archicad_version}-macOS26-arm64-v${release_version}"
-stage_dir="${stage_parent}/${archive_name}"
-output_dmg="${project_root}/dist/${archive_name}.dmg"
+    if [[ "${detected_version}" != "${expected_version}" ]]; then
+        print -u2 "Expected Archicad ${expected_version} DevKit at ${devkit_dir}, detected ${detected_version:-unknown}."
+        return 1
+    fi
 
-rm -rf "${build_dir}"
-cmake -S "${project_root}" -B "${build_dir}" -G Xcode \
-    -DAC_API_DEVKIT_DIR="${devkit_dir}" \
-    -DAC_ADDON_NAME=DropViewGLBExporter \
-    -DAC_ADDON_LANGUAGE=INT
-cmake --build "${build_dir}" --config Release
+    rm -rf "${build_dir}"
+    cmake -S "${project_root}" -B "${build_dir}" -G Xcode \
+        -DAC_API_DEVKIT_DIR="${devkit_dir}" \
+        -DAC_ADDON_NAME=DropViewGLBExporter \
+        -DAC_ADDON_LANGUAGE=INT
+    cmake --build "${build_dir}" --config Release
 
-bundle_path="${build_dir}/Release/DropViewGLBExporter.bundle"
-if [[ ! -d "${bundle_path}" ]]; then
-    print -u2 "Release bundle not found: ${bundle_path}"
-    exit 1
-fi
+    local bundle_path="${build_dir}/Release/DropViewGLBExporter.bundle"
+    if [[ ! -d "${bundle_path}" ]]; then
+        print -u2 "Release bundle not found: ${bundle_path}"
+        return 1
+    fi
 
-chmod -R u+w "${bundle_path}"
-xattr -cr "${bundle_path}"
+    mkdir -p "${version_dir}"
+    chmod -R u+w "${bundle_path}"
+    xattr -cr "${bundle_path}"
+    ditto --norsrc "${bundle_path}" "${version_dir}/DropViewGLBExporter.bundle"
 
-rm -rf "${stage_parent}"
+    local staged_bundle="${version_dir}/DropViewGLBExporter.bundle"
+    xattr -cr "${staged_bundle}"
+    if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+        codesign --force --deep --strict --options runtime --timestamp \
+            --sign "${CODESIGN_IDENTITY}" "${staged_bundle}"
+    elif [[ "${ALLOW_ADHOC:-0}" == "1" ]]; then
+        codesign --force --deep --strict --sign - "${staged_bundle}"
+    else
+        print -u2 "Set CODESIGN_IDENTITY to a Developer ID Application identity."
+        print -u2 "For a local test package only, set ALLOW_ADHOC=1."
+        return 1
+    fi
+    codesign --verify --deep --strict --verbose=2 "${staged_bundle}"
+}
+
+rm -rf "${temporary_root}/stage"
 mkdir -p "${stage_dir}" "${project_root}/dist"
-ditto --norsrc "${bundle_path}" "${stage_dir}/DropViewGLBExporter.bundle"
+
+build_and_stage 28 "${ac28_devkit}"
+build_and_stage 29 "${ac29_devkit}"
+
 cp "${project_root}/README.md" "${stage_dir}/README.md"
 cp "${project_root}/LICENSE" "${stage_dir}/LICENSE.txt"
 cp "${project_root}/THIRD_PARTY_NOTICES.txt" "${stage_dir}/THIRD_PARTY_NOTICES.txt"
-
-staged_bundle="${stage_dir}/DropViewGLBExporter.bundle"
-xattr -cr "${staged_bundle}"
-
-# Sign only after the bundle reaches its final staging location. Copying a signed
-# bundle can invalidate its Mach-O signature on some macOS/File Provider setups.
-if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-    codesign --force --deep --strict --options runtime --timestamp \
-        --sign "${CODESIGN_IDENTITY}" "${staged_bundle}"
-elif [[ "${ALLOW_ADHOC:-0}" == "1" ]]; then
-    codesign --force --deep --strict --sign - "${staged_bundle}"
-else
-    print -u2 "Set CODESIGN_IDENTITY to a Developer ID Application identity."
-    print -u2 "For a local test package only, set ALLOW_ADHOC=1."
-    exit 1
-fi
-
-codesign --verify --deep --strict --verbose=2 "${staged_bundle}"
 
 rm -f "${output_dmg}" "${output_dmg}.sha256"
 COPYFILE_DISABLE=1 hdiutil create \
@@ -83,13 +89,15 @@ fi
 codesign --verify --strict --verbose=2 "${output_dmg}"
 hdiutil verify "${output_dmg}"
 
-# Verify the bundle from the disk image users will actually download.
 verify_dir="${temporary_root}/verify"
 rm -rf "${verify_dir}"
 mount_dir="${verify_dir}/mount"
 mkdir -p "${mount_dir}"
 hdiutil attach -readonly -nobrowse -mountpoint "${mount_dir}" "${output_dmg}"
-codesign --verify --deep --strict --verbose=2 "${mount_dir}/DropViewGLBExporter.bundle"
+for version in 28 29; do
+    codesign --verify --deep --strict --verbose=2 \
+        "${mount_dir}/Archicad ${version}/DropViewGLBExporter.bundle"
+done
 hdiutil detach "${mount_dir}"
 
 if [[ -n "${NOTARY_PROFILE:-}" ]]; then
@@ -104,7 +112,7 @@ if [[ -n "${NOTARY_PROFILE:-}" ]]; then
 fi
 
 cd "${project_root}/dist"
-shasum -a 256 "${archive_name}.dmg" > "${archive_name}.dmg.sha256"
+shasum -a 256 "${output_dmg:t}" > "${output_dmg:t}.sha256"
 
 print "Created ${output_dmg}"
 cat "${output_dmg}.sha256"

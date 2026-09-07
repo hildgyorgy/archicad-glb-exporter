@@ -2,11 +2,6 @@ name: Build Windows Add-On
 
 on:
   workflow_dispatch:
-    inputs:
-      devkit_tag:
-        description: "GRAPHISOFT/archicad-api-devkit release tag to build against"
-        required: false
-        default: "29.3100"
   push:
     tags:
       - "v*"
@@ -16,11 +11,22 @@ permissions:
 
 jobs:
   build-windows:
+    name: Build Archicad ${{ matrix.archicad }}
     runs-on: windows-2022
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - archicad: 28
+            devkit_tag: "28.4001"
+            toolset: v142
+          - archicad: 29
+            devkit_tag: "29.3100"
+            toolset: v143
     env:
       ADDON_NAME: DropViewGLBExporter
-      DEVKIT_TAG: ${{ inputs.devkit_tag || '29.3100' }}
+      DEVKIT_TAG: ${{ matrix.devkit_tag }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
@@ -83,7 +89,7 @@ jobs:
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v143 `
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T ${{ matrix.toolset }} `
             -DAC_API_DEVKIT_DIR="$env:AC_API_DEVKIT_DIR" `
             -DAC_ADDON_NAME="$env:ADDON_NAME" `
             -DAC_ADDON_LANGUAGE="INT"
@@ -106,6 +112,56 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ADDON_NAME }}-AC29-Windows-x64
+          name: ${{ env.ADDON_NAME }}-AC${{ matrix.archicad }}-Windows-x64
           path: ${{ env.APX_PATH }}
+          if-no-files-found: error
+
+  package-windows:
+    name: Package Archicad 28-29
+    needs: build-windows
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download Archicad 28 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: DropViewGLBExporter-AC28-Windows-x64
+          path: downloaded/Archicad 28
+
+      - name: Download Archicad 29 artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: DropViewGLBExporter-AC29-Windows-x64
+          path: downloaded/Archicad 29
+
+      - name: Create release ZIP
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $env:GITHUB_REF_NAME -replace '^v', ''
+          } else {
+            "0.2.0-alpha"
+          }
+          $archiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$version"
+          $stage = Join-Path $env:RUNNER_TEMP $archiveName
+          New-Item -ItemType Directory -Path "$stage/Archicad 28", "$stage/Archicad 29" -Force | Out-Null
+          Copy-Item "downloaded/Archicad 28/DropViewGLBExporter.apx" "$stage/Archicad 28/"
+          Copy-Item "downloaded/Archicad 29/DropViewGLBExporter.apx" "$stage/Archicad 29/"
+          Copy-Item README.md "$stage/README.md"
+          Copy-Item LICENSE "$stage/LICENSE.txt"
+          Copy-Item THIRD_PARTY_NOTICES.txt "$stage/THIRD_PARTY_NOTICES.txt"
+          Compress-Archive -Path $stage -DestinationPath "$archiveName.zip"
+          $hash = Get-FileHash "$archiveName.zip" -Algorithm SHA256
+          "$($hash.Hash.ToLowerInvariant())  $archiveName.zip" | Out-File -Encoding ascii "$archiveName.zip.sha256"
+          "ARCHIVE_NAME=$archiveName" >> $env:GITHUB_ENV
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: |
+            ${{ env.ARCHIVE_NAME }}.zip
+            ${{ env.ARCHIVE_NAME }}.zip.sha256
           if-no-files-found: error

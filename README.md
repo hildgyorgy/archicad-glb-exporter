@@ -4,15 +4,13 @@ An experimental native Archicad add-on that exports selected elements from the a
 
 ## Current release
 
-The published **v0.1.0-alpha** package is an experimental build for:
+The published **v0.2.0-alpha** package is an experimental build for:
 
-- Archicad 29
-- Apple Silicon Macs (`arm64`)
-- macOS 26 or later
+- Archicad 28 and 29
+- Apple Silicon Macs (`arm64`) with macOS 26 or later
+- Windows 11 PCs (`x64`)
 
-Intel Macs, Windows and earlier versions of macOS are not currently supported by the published macOS package.
-
-The shared source can also be built for Archicad 28 on Apple Silicon. This build requires the matching API DevKit and runtime testing before release.
+Intel Macs and earlier versions of macOS are not currently supported.
 
 ## What is exported
 
@@ -30,11 +28,12 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 
 ## Installation
 
-1. Download the latest macOS DMG from [GitHub Releases](https://github.com/hildgyorgy/archicad-glb-exporter/releases).
-2. Open the DMG.
-3. In the Archicad version matching the downloaded package, open **Options > Add-On Manager**.
-4. Choose **Add**, then select `DropViewGLBExporter.bundle`.
-5. Confirm that **Drop & View GLB Exporter** appears as an available add-on.
+1. Download the latest package for your platform from [GitHub Releases](https://github.com/hildgyorgy/archicad-glb-exporter/releases).
+2. Open the macOS DMG or extract the Windows ZIP.
+3. Open the folder matching your Archicad major version.
+4. In Archicad, open **Options > Add-On Manager**.
+5. Choose **Add**, then select `DropViewGLBExporter.bundle` on macOS or `DropViewGLBExporter.apx` on Windows.
+6. Confirm that **Drop & View GLB Exporter** appears as an available add-on.
 
 ## Exporting
 
@@ -65,7 +64,7 @@ The CMake configuration detects the DevKit version and accepts Archicad 28 and 2
 
 This release is intended for testing on real Archicad projects. Before relying on an exported model, compare it with the active Archicad 3D view. Please report reproducible problems through [GitHub Issues](https://github.com/hildgyorgy/archicad-glb-exporter/issues) and include:
 
-- the Archicad 29 build number and macOS version;
+- the Archicad build number and operating-system version;
 - the affected element type;
 - the export report and screenshots of the Archicad and GLB views;
 - a minimal example file where it can be shared legally.

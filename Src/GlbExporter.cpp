@@ -589,7 +589,7 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	while (binary.size () % 4 != 0) binary.push_back (0);
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Drop & View GLB Exporter v0.1.0-alpha\"},"
+		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Drop & View GLB Exporter v0.2.0-alpha\"},"
 		<< "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (i > 0) json << ',';
