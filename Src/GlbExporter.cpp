@@ -95,7 +95,8 @@ Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const API_Texture& te
 	// rotate in texture space, then convert model-space distances to image repeats.
 	// Archicad 29's API_Umat 3D model component returns this value in degrees
 	// (for example 90.0 for a quarter turn), despite the API_Texture field docs.
-	const double rotation = texture.rotAng * M_PI / 180.0;
+	constexpr double DegreesToRadians = 0.01745329251994329576923690768489;
+	const double rotation = texture.rotAng * DegreesToRadians;
 	const double cosine = std::cos (rotation);
 	const double sine = std::sin (rotation);
 	const double rotatedU = cosine * uv.u - sine * uv.v;
@@ -691,7 +692,9 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	IO::File file (location, IO::File::Create);
 	if (file.Open (IO::File::WriteEmptyMode) != NoError)
 		return false;
-	return file.WriteBin (glb.data (), glb.size ()) == NoError;
+	if (glb.size () > std::numeric_limits<USize>::max ())
+		return false;
+	return file.WriteBin (glb.data (), static_cast<USize> (glb.size ())) == NoError;
 }
 
 } // namespace
