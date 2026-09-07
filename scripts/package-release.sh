@@ -2,14 +2,30 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-release_version="0.1.0-alpha"
-archive_name="DropView-GLB-Exporter-AC29-macOS26-arm64-v${release_version}"
+release_version="${RELEASE_VERSION:-0.1.0-alpha}"
 temporary_root="${TMPDIR%/}/dropview-glb-exporter-release"
 build_dir="${temporary_root}/build"
 stage_parent="${temporary_root}/stage"
+devkit_dir="${AC_API_DEVKIT_DIR:-${HOME}/Downloads/API}"
+acapinc_file="${devkit_dir}/Support/Inc/ACAPinc.h"
+
+if [[ ! -f "${acapinc_file}" ]]; then
+    print -u2 "Archicad API header not found: ${acapinc_file}"
+    exit 1
+fi
+
+archicad_version="$(sed -nE 's/^[[:space:]]*#define[[:space:]]+ServerMainVers_([0-9][0-9])00.*/\1/p' "${acapinc_file}" | tail -n 1)"
+case "${archicad_version}" in
+    26|27|28|29) ;;
+    *)
+        print -u2 "Unsupported or undetected Archicad version: ${archicad_version:-unknown}"
+        exit 1
+        ;;
+esac
+
+archive_name="DropView-GLB-Exporter-AC${archicad_version}-macOS26-arm64-v${release_version}"
 stage_dir="${stage_parent}/${archive_name}"
 output_dmg="${project_root}/dist/${archive_name}.dmg"
-devkit_dir="${AC_API_DEVKIT_DIR:-${HOME}/Downloads/API}"
 
 rm -rf "${build_dir}"
 cmake -S "${project_root}" -B "${build_dir}" -G Xcode \

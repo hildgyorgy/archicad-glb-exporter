@@ -4,13 +4,15 @@ An experimental native Archicad add-on that exports selected elements from the a
 
 ## Current release
 
-**v0.1.0-alpha** is an experimental build for:
+The published **v0.1.0-alpha** package is an experimental build for:
 
 - Archicad 29
 - Apple Silicon Macs (`arm64`)
 - macOS 26 or later
 
-Intel Macs, Windows, earlier versions of macOS and other Archicad versions are not currently supported.
+Intel Macs, Windows and earlier versions of macOS are not currently supported by the published macOS package.
+
+The shared source can also be built for Archicad 26, 27 and 28 on Apple Silicon. These builds require their matching API DevKits and runtime testing before release. Archicad 26 is treated as experimental, best-effort compatibility because Graphisoft no longer maintains it for current macOS releases.
 
 ## What is exported
 
@@ -30,7 +32,7 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 
 1. Download the latest macOS DMG from [GitHub Releases](https://github.com/hildgyorgy/archicad-glb-exporter/releases).
 2. Open the DMG.
-3. In Archicad 29, open **Options > Add-On Manager**.
+3. In the Archicad version matching the downloaded package, open **Options > Add-On Manager**.
 4. Choose **Add**, then select `DropViewGLBExporter.bundle`.
 5. Confirm that **Drop & View GLB Exporter** appears as an available add-on.
 
@@ -44,6 +46,20 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 6. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
 
 The export command is disabled outside the 3D window. If an element contains invalid polygons, the exporter attempts to export its valid geometry and reports the skipped parts after completion.
+
+## Building for Archicad 26–29 on macOS
+
+Use the API DevKit matching the target Archicad major version. Each major version requires its own bundle, but all four builds use the same exporter source:
+
+```sh
+cmake -S . -B build-ac28 -G Xcode \
+  -DAC_API_DEVKIT_DIR="/path/to/Archicad-28-API-DevKit" \
+  -DAC_ADDON_NAME=DropViewGLBExporter \
+  -DAC_ADDON_LANGUAGE=INT
+cmake --build build-ac28 --config Release
+```
+
+The CMake configuration detects the DevKit version and accepts Archicad 26 through 29. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes it in the DMG filename.
 
 ## Alpha feedback
 
