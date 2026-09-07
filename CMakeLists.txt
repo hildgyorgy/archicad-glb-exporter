@@ -104,7 +104,6 @@ if (WIN32)
 	file (GLOB AddOnResourceFiles
 		${AddOnResourcesFolder}/R${AC_ADDON_LANGUAGE}/*.grc
 		${AddOnResourcesFolder}/RFIX/*.grc
-		${AddOnResourcesFolder}/RFIX/*.grc
 		${AddOnResourcesFolder}/RFIX.win/*.rc2
 	)
 else ()

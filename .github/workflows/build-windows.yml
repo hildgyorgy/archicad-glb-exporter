@@ -1,0 +1,111 @@
+name: Build Windows Add-On
+
+on:
+  workflow_dispatch:
+    inputs:
+      devkit_tag:
+        description: "GRAPHISOFT/archicad-api-devkit release tag to build against"
+        required: false
+        default: "29.3100"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      ADDON_NAME: DropViewGLBExporter
+      DEVKIT_TAG: ${{ inputs.devkit_tag || '29.3100' }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Download Archicad API DevKit (Windows)
+        shell: pwsh
+        run: |
+          $headers = @{
+            Accept = "application/vnd.github+json"
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $release = Invoke-RestMethod `
+            -Headers $headers `
+            -Uri "https://api.github.com/repos/GRAPHISOFT/archicad-api-devkit/releases/tags/$env:DEVKIT_TAG"
+          $assets = @($release.assets | Where-Object {
+            $_.name -match '(?i)^API\.Development\.Kit\.WIN\..*\.zip$'
+          })
+          if ($assets.Count -ne 1) {
+            Write-Error "Expected exactly one Windows API DevKit ZIP for tag $env:DEVKIT_TAG, found $($assets.Count)."
+            exit 1
+          }
+          $asset = $assets[0]
+          Write-Host "Downloading $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile devkit.zip
+
+          if ($asset.digest -match '^sha256:(?<hash>[0-9a-fA-F]{64})$') {
+            $expectedHash = $Matches.hash.ToLowerInvariant()
+            $actualHash = (Get-FileHash -Path devkit.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) {
+              Write-Error "DevKit checksum mismatch. Expected $expectedHash, got $actualHash."
+              exit 1
+            }
+            Write-Host "DevKit SHA-256 verified: $actualHash"
+          } else {
+            Write-Warning "The release API did not provide a SHA-256 digest for $($asset.name)."
+          }
+
+          Expand-Archive -Path devkit.zip -DestinationPath devkit -Force
+
+          $marker = Get-ChildItem -Path devkit -Recurse -File -Filter ACAPinc.h |
+            Where-Object { $_.FullName -match '[\\/]Support[\\/]Inc[\\/]ACAPinc\.h$' } |
+            Select-Object -First 1
+          if (-not $marker) {
+            Write-Error "Could not locate Support/Inc/ACAPinc.h in the extracted DevKit."
+            exit 1
+          }
+          $incDir = Split-Path $marker.FullName -Parent
+          $supportDir = Split-Path $incDir -Parent
+          $devkitRoot = Split-Path $supportDir -Parent
+          Write-Host "DevKit root: $devkitRoot"
+          echo "AC_API_DEVKIT_DIR=$devkitRoot" >> $env:GITHUB_ENV
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v143 `
+            -DAC_API_DEVKIT_DIR="$env:AC_API_DEVKIT_DIR" `
+            -DAC_ADDON_NAME="$env:ADDON_NAME" `
+            -DAC_ADDON_LANGUAGE="INT"
+
+      - name: Build (Release)
+        shell: pwsh
+        run: cmake --build build --config Release
+
+      - name: Locate build output
+        shell: pwsh
+        run: |
+          $apx = Get-ChildItem -Path build -Recurse -Filter "$env:ADDON_NAME.apx" | Select-Object -First 1
+          if (-not $apx) {
+            Write-Error "Build succeeded but no .apx was found under build/. Check the build log above."
+            exit 1
+          }
+          Write-Host "Found: $($apx.FullName)"
+          echo "APX_PATH=$($apx.FullName)" >> $env:GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ADDON_NAME }}-AC29-Windows-x64
+          path: ${{ env.APX_PATH }}
+          if-no-files-found: error
