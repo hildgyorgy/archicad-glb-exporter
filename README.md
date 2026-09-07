@@ -12,7 +12,7 @@ The published **v0.1.0-alpha** package is an experimental build for:
 
 Intel Macs, Windows and earlier versions of macOS are not currently supported by the published macOS package.
 
-The shared source can also be built for Archicad 26, 27 and 28 on Apple Silicon. These builds require their matching API DevKits and runtime testing before release. Archicad 26 is treated as experimental, best-effort compatibility because Graphisoft no longer maintains it for current macOS releases.
+The shared source can also be built for Archicad 28 on Apple Silicon. This build requires the matching API DevKit and runtime testing before release.
 
 ## What is exported
 
@@ -47,9 +47,9 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 
 The export command is disabled outside the 3D window. If an element contains invalid polygons, the exporter attempts to export its valid geometry and reports the skipped parts after completion.
 
-## Building for Archicad 26–29 on macOS
+## Building for Archicad 28–29 on macOS
 
-Use the API DevKit matching the target Archicad major version. Each major version requires its own bundle, but all four builds use the same exporter source:
+Use the API DevKit matching the target Archicad major version. Each major version requires its own bundle, but both builds use the same exporter source:
 
 ```sh
 cmake -S . -B build-ac28 -G Xcode \
@@ -59,7 +59,7 @@ cmake -S . -B build-ac28 -G Xcode \
 cmake --build build-ac28 --config Release
 ```
 
-The CMake configuration detects the DevKit version and accepts Archicad 26 through 29. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes it in the DMG filename.
+The CMake configuration detects the DevKit version and accepts Archicad 28 and 29. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes it in the DMG filename.
 
 ## Alpha feedback
 

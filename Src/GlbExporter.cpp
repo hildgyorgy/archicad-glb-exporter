@@ -1,6 +1,5 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
-#include "ArchicadCompatibility.hpp"
 #include "DGFileDialog.hpp"
 #include "File.hpp"
 #include "FileTypeManager.hpp"
@@ -34,13 +33,13 @@ struct MaterialGroup {
 
 class Scoped3DWindowSight {
 public:
-	Scoped3DWindowSight () : error (ArchicadCompatibility::SelectSight (nullptr, &previousSight)) {}
+	Scoped3DWindowSight () : error (ACAPI_Sight_SelectSight (nullptr, &previousSight)) {}
 
 	~Scoped3DWindowSight ()
 	{
 		if (error == NoError) {
 			void* ignoredSight = nullptr;
-			ArchicadCompatibility::SelectSight (previousSight, &ignoredSight);
+			ACAPI_Sight_SelectSight (previousSight, &ignoredSight);
 		}
 	}
 
@@ -227,13 +226,13 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
     for (const auto& element : selectedElements) {
         if (element.type == API_WallID) {
             GS::Array<API_Guid> windows;
-            if (ArchicadCompatibility::GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
+            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
                 ACAPI_WriteReport ("The windows connected to a selected wall could not be read. Export stopped.", true);
                 return false;
             }
             for (const auto& guid : windows) addElement (guid);
             GS::Array<API_Guid> doors;
-            if (ArchicadCompatibility::GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
+            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
                 ACAPI_WriteReport ("The doors connected to a selected wall could not be read. Export stopped.", true);
                 return false;
             }
@@ -241,7 +240,7 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
         }
         if (element.type == API_RoofID || element.type == API_ShellID) {
             GS::Array<API_Guid> skylights;
-            if (ArchicadCompatibility::GetConnectedElements (element.guid, API_SkylightID, &skylights) != NoError) {
+            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_SkylightID, &skylights) != NoError) {
                 ACAPI_WriteReport ("The skylights connected to a selected roof or shell could not be read. Export stopped.", true);
                 return false;
             }
@@ -317,7 +316,7 @@ bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallC
             const GSSize panelCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.cWallPanels)) / sizeof (API_CWPanelType);
             for (GSSize i = 0; i < panelCount; ++i) {
                 bool isDegenerate = false;
-                if (ArchicadCompatibility::IsCurtainWallPanelDegenerate (&memo.cWallPanels[i].head.guid, &isDegenerate) == NoError && !isDegenerate)
+                if (ACAPI_CurtainWall_IsCWPanelDegenerate (&memo.cWallPanels[i].head.guid, &isDegenerate) == NoError && !isDegenerate)
                     modelElements.Push (memo.cWallPanels[i].head);
             }
             AppendElementHeads (modelElements, memo.cWallJunctions);
@@ -336,7 +335,7 @@ std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon,
         API_Component3D c {};
         c.header.typeID = API_PedgID;
         c.header.index = i;
-        if (ArchicadCompatibility::GetModelComponent (&c) != NoError)
+        if (ACAPI_ModelAccess_GetComponent (&c) != NoError)
             throw std::runtime_error ("Cannot read polygon contour");
         const Int32 edge = c.pedg.pedg;
         if (edge == 0) {
@@ -346,7 +345,7 @@ std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon,
         }
         c.header.typeID = API_EdgeID;
         c.header.index = std::abs (edge);
-        if (ArchicadCompatibility::GetModelComponent (&c) != NoError)
+        if (ACAPI_ModelAccess_GetComponent (&c) != NoError)
             throw std::runtime_error ("Cannot read edge");
         const Int32 vertex = edge > 0 ? c.edge.vert1 : c.edge.vert2;
         if (vertex <= 0 || vertex > bodyVertexCount)
@@ -365,7 +364,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 	failedElementCount = 0;
 	std::map<Int32, std::size_t> materialToGroup;
 	Int32 visibleBodyCount = 0;
-	if (ArchicadCompatibility::GetModelComponentCount (API_BodyID, &visibleBodyCount) != NoError)
+	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
 		return false;
 	GS::HashSet<API_Guid> exportGuids;
 	for (const API_Elem_Head& element : elements)
@@ -379,7 +378,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 		API_Component3D bodyComponent {};
 		bodyComponent.header.typeID = API_BodyID;
 		bodyComponent.header.index = bodyIndex;
-		if (ArchicadCompatibility::GetModelComponent (&bodyComponent) != NoError || !exportGuids.Contains (bodyComponent.body.parent.guid))
+		if (ACAPI_ModelAccess_GetComponent (&bodyComponent) != NoError || !exportGuids.Contains (bodyComponent.body.parent.guid))
 			continue;
 		auto group = std::find_if (visibleBodyGroups.begin (), visibleBodyGroups.end (), [&] (const VisibleBodyGroup& candidate) {
 			return candidate.parent.guid == bodyComponent.body.parent.guid;
@@ -410,7 +409,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 		API_Component3D component {};
 		component.header.typeID = API_BodyID;
 		component.header.index = bodyIndex;
-		if (ArchicadCompatibility::GetModelComponent (&component) != NoError)
+		if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
 			continue;
 		const API_Tranmat transform = component.body.tranmat;
 		const Int32 elementIndex = component.body.head.elemIndex - 1;
@@ -420,7 +419,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 		for (Int32 polygonIndex = 1; polygonIndex <= polygonCount; ++polygonIndex) {
 			component.header.typeID = API_PgonID;
 			component.header.index = polygonIndex;
-			if (ArchicadCompatibility::GetModelComponent (&component) != NoError || component.pgon.fpedg > component.pgon.lpedg)
+			if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.pgon.fpedg > component.pgon.lpedg)
 				continue;
 			const API_PgonType polygon = component.pgon;
 			try {
@@ -429,7 +428,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 				continue;
 			component.header.typeID = API_VectID;
 			component.header.index = std::abs (polygon.ivect);
-			if (ArchicadCompatibility::GetModelComponent (&component) != NoError)
+			if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
 				continue;
 			const Vec3 normal = ConvertNormal (transform, component.vect, polygon.ivect < 0);
 			const double normalSign = polygon.ivect < 0 ? -1.0 : 1.0;
@@ -441,7 +440,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
                 for (Int32 vertexIndex : ring) {
                     component.header.typeID = API_VertID;
                     component.header.index = vertexIndex;
-                    if (ArchicadCompatibility::GetModelComponent (&component) != NoError)
+                    if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
                         throw std::runtime_error ("Cannot read contour vertex");
                     const auto vertex = component.vert;
                     vertices.push_back (vertex);
@@ -455,7 +454,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 				API_Component3D materialComponent {};
 				materialComponent.header.typeID = API_UmatID;
 				materialComponent.header.index = polygon.iumat;
-				if (ArchicadCompatibility::GetModelComponent (&materialComponent) == NoError) {
+				if (ACAPI_ModelAccess_GetComponent (&materialComponent) == NoError) {
 					MaterialGroup group;
 					group.sourceIndex = polygon.iumat;
 					group.material = materialComponent.umat.mater;
@@ -485,7 +484,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
                 parameters.pgonIndex = polygonIndex;
                 parameters.surfacePoint = {vertex.x, vertex.y, vertex.z};
                 API_UVCoord uv {};
-                if (elementIndex >= 0 && localBodyIndex >= 0 && ArchicadCompatibility::GetTextureCoordinate (&parameters, &uv) == NoError)
+                if (elementIndex >= 0 && localBodyIndex >= 0 && ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
                     textureCoordinates.push_back (ApplyArchicadTextureTransform (uv, materialGroups[groupIndex].material.texture));
                 else textureCoordinates.push_back ({0.0f, 0.0f});
             }
@@ -614,10 +613,17 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 		if (i > 0) json << ',';
 		const API_MaterialType& material = materialGroups[i].material;
 		const double alpha = 1.0 - material.transpPc / 100.0;
+		// Archicad displays the texture image as the surface base colour. In glTF,
+		// baseColorFactor is multiplied by that image, so applying surfaceRGB as
+		// well would tint and darken the texture a second time.
+		const bool hasBaseColorTexture = materialTextureIndices[i] >= 0;
+		const double red = hasBaseColorTexture ? 1.0 : material.surfaceRGB.f_red;
+		const double green = hasBaseColorTexture ? 1.0 : material.surfaceRGB.f_green;
+		const double blue = hasBaseColorTexture ? 1.0 : material.surfaceRGB.f_blue;
 		json << "{\"name\":\"" << EscapeJsonString (materialGroups[i].name) << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":["
-			<< material.surfaceRGB.f_red << ',' << material.surfaceRGB.f_green << ',' << material.surfaceRGB.f_blue << ',' << alpha
+			<< red << ',' << green << ',' << blue << ',' << alpha
 			<< "],\"metallicFactor\":0,\"roughnessFactor\":1";
-		if (materialTextureIndices[i] >= 0) json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i] << '}';
+		if (hasBaseColorTexture) json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i] << '}';
 		json << '}';
 		if (alpha < 1.0)
 			json << ",\"alphaMode\":\"BLEND\"";

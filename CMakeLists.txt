@@ -82,8 +82,8 @@ if (EXISTS ${ACAPINC_FILE_LOCATION})
 	list (GET VersionList -1 CurrentVersionDefine)
 	string (REGEX REPLACE ".*ServerMainVers_([0-9][0-9])00" "\\1" ARCHICAD_VERSION ${CurrentVersionDefine})
 	message (STATUS "Archicad Version: ${ARCHICAD_VERSION}")
-	if (ARCHICAD_VERSION LESS 26 OR ARCHICAD_VERSION GREATER 29)
-		message (FATAL_ERROR "Unsupported Archicad version ${ARCHICAD_VERSION}. Supported versions are 26 through 29.")
+	if (ARCHICAD_VERSION LESS 28 OR ARCHICAD_VERSION GREATER 29)
+		message (FATAL_ERROR "Unsupported Archicad version ${ARCHICAD_VERSION}. Supported versions are 28 and 29.")
 	endif ()
 else ()
 	message (FATAL_ERROR "Failed to detect Archicad version, please check the value of the AC_API_DEVKIT_DIR variable.")
@@ -204,21 +204,14 @@ target_include_directories (AddOn PUBLIC
 	${AddOnSourcesFolder}
 	${AC_API_DEVKIT_DIR}/Support/Inc
 )
-target_compile_definitions (AddOn PRIVATE DROPVIEW_ARCHICAD_VERSION=${ARCHICAD_VERSION})
-
 if (WIN32)
 	target_link_libraries (AddOn
 		"${AC_API_DEVKIT_DIR}/Support/Lib/ACAP_STAT.lib"
 	)
 else ()
 	find_library (CocoaFramework Cocoa)
-	if (ARCHICAD_VERSION EQUAL 26)
-		set (AC_API_STATIC_LIBRARY "${AC_API_DEVKIT_DIR}/Support/Lib/Mactel/libACAP_STAT.a")
-	else ()
-		set (AC_API_STATIC_LIBRARY "${AC_API_DEVKIT_DIR}/Support/Lib/libACAP_STAT.a")
-	endif ()
 	target_link_libraries (AddOn
-		"${AC_API_STATIC_LIBRARY}"
+		"${AC_API_DEVKIT_DIR}/Support/Lib/libACAP_STAT.a"
 		${CocoaFramework}
 	)
 endif ()
@@ -261,13 +254,8 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang\$")
     target_compile_options(
         AddOn PRIVATE
         "SHELL:-include \"${new_hpp}\""
+        "SHELL:-include \"${malloc_hpp}\""
     )
-	# AC26 and AC27's GSMalloc.hpp predates the std namespace wrappers needed by
-	# current libc++. The exporter does not call the wrapped C allocation functions;
-	# GSNew.hpp remains force-included for the Graphisoft C++ allocation contract.
-	if (ARCHICAD_VERSION GREATER_EQUAL 28)
-		target_compile_options (AddOn PRIVATE "SHELL:-include \"${malloc_hpp}\"")
-	endif ()
 else()
     message(FATAL_ERROR "Unknown compiler ID.")
 endif()

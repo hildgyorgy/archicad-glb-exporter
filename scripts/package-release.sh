@@ -16,7 +16,7 @@ fi
 
 archicad_version="$(sed -nE 's/^[[:space:]]*#define[[:space:]]+ServerMainVers_([0-9][0-9])00.*/\1/p' "${acapinc_file}" | tail -n 1)"
 case "${archicad_version}" in
-    26|27|28|29) ;;
+    28|29) ;;
     *)
         print -u2 "Unsupported or undetected Archicad version: ${archicad_version:-unknown}"
         exit 1
