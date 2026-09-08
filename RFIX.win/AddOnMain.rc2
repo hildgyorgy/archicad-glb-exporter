@@ -1,1 +1,3 @@
+#include "AddOnFix.grc.rc2"
+
 1 ICON LOADONCALL MOVEABLE IMPURE ACAP.ico

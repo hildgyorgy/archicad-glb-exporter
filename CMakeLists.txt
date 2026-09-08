@@ -113,6 +113,27 @@ if (WIN32)
 		${AddOnResourcesFolder}/RFIX/*.grc
 		${AddOnResourcesFolder}/RFIX.win/*.rc2
 	)
+	file (GLOB NativeWindowsResourceFiles
+		${AddOnResourcesFolder}/RFIX.win/*.rc2
+	)
+	list (LENGTH NativeWindowsResourceFiles NativeWindowsResourceFileCount)
+	if (NOT NativeWindowsResourceFileCount EQUAL 1)
+		message (FATAL_ERROR "Exactly one RFIX.win/*.rc2 file is required, found ${NativeWindowsResourceFileCount}.")
+	endif ()
+	list (GET NativeWindowsResourceFiles 0 NativeWindowsResourceFile)
+	file (READ "${NativeWindowsResourceFile}" NativeWindowsResourceContent)
+	file (GLOB GrcResourceFiles
+		${AddOnResourcesFolder}/R${AC_ADDON_LANGUAGE}/*.grc
+		${AddOnResourcesFolder}/RFIX/*.grc
+	)
+	foreach (GrcResourceFile ${GrcResourceFiles})
+		get_filename_component (GrcResourceName "${GrcResourceFile}" NAME)
+		set (GeneratedWindowsResourceName "${GrcResourceName}.rc2")
+		string (FIND "${NativeWindowsResourceContent}" "\"${GeneratedWindowsResourceName}\"" GeneratedWindowsResourceIncludeIndex)
+		if (GeneratedWindowsResourceIncludeIndex EQUAL -1)
+			message (FATAL_ERROR "${NativeWindowsResourceFile} must include ${GeneratedWindowsResourceName}; otherwise the APX is missing required Archicad resources.")
+		endif ()
+	endforeach ()
 else ()
 	file (GLOB AddOnResourceFiles
 		${AddOnResourcesFolder}/R${AC_ADDON_LANGUAGE}/*.grc
