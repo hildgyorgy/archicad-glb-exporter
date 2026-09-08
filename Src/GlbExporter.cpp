@@ -128,10 +128,15 @@ void LoadTextureImage (const IO::Location* location, MaterialGroup& group)
 	else
 		group.imageData.clear ();
 
-	// PNG color types 4 (gray + alpha) and 6 (RGBA) contain an alpha channel.
-	// Archicad uses these for cutout surfaces such as foliage and chain-link mesh.
-	if (group.imageMimeType == "image/png" && size > 25 && (bytes[25] == 4 || bytes[25] == 6))
-		group.alphaMask = true;
+	// An alpha channel in the source image is not enough to make the Archicad
+	// surface transparent. Some opaque textures contain luminance-like alpha
+	// data. Use it as a cutout only when Archicad explicitly enables both alpha
+	// use and transparency-pattern handling for the texture.
+	const bool pngHasAlpha = group.imageMimeType == "image/png" && size > 25 && (bytes[25] == 4 || bytes[25] == 6);
+	const short textureStatus = group.material.texture.status;
+	group.alphaMask = pngHasAlpha &&
+		(textureStatus & APITxtr_UseAlpha) != 0 &&
+		(textureStatus & APITxtr_TransPattern) != 0;
 }
 
 std::string EscapeJsonString (const std::string& value)
@@ -358,10 +363,11 @@ std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon,
 
 bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& positions, std::vector<Vec3>& normals,
 	std::vector<Vec2>& textureCoordinates, std::vector<MaterialGroup>& materialGroups, Int32& emptyElementCount,
-    Int32& failedElementCount, GS::UniString& elementReport)
+    Int32& failedElementCount, Int32& invisiblePolygonCount, GS::UniString& elementReport)
 {
     emptyElementCount = 0;
 	failedElementCount = 0;
+	invisiblePolygonCount = 0;
 	std::map<Int32, std::size_t> materialToGroup;
 	Int32 visibleBodyCount = 0;
 	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
@@ -422,6 +428,10 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 			if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.pgon.fpedg > component.pgon.lpedg)
 				continue;
 			const API_PgonType polygon = component.pgon;
+			if ((polygon.status & APIPgon_Invis) != 0) {
+				++invisiblePolygonCount;
+				continue;
+			}
 			try {
 			const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 			if (polygonContours.empty ())
@@ -574,17 +584,33 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 		indexOffsets.push_back (static_cast<std::uint32_t> (binary.size ())); 
 		AppendBytes (binary, packed.indices.data (), packed.indices.size () * sizeof (std::uint32_t));
 	}
-	std::vector<int> imageBufferViews (materialGroups.size (), -1);
+	struct EmbeddedImage {
+		std::size_t materialGroupIndex;
+		std::uint32_t offset;
+		int bufferView;
+	};
+	std::vector<EmbeddedImage> embeddedImages;
+	std::vector<int> materialImageIndices (materialGroups.size (), -1);
 	std::vector<int> materialTextureIndices (materialGroups.size (), -1);
-	std::vector<std::uint32_t> imageOffsets (materialGroups.size (), 0);
 	int textureCount = 0;
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (materialGroups[i].imageData.empty ()) continue;
-		while (binary.size () % 4 != 0) binary.push_back (0);
-		imageBufferViews[i] = static_cast<int> (4 * materialGroups.size () + textureCount);
+		auto existingImage = std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
+			const MaterialGroup& existingGroup = materialGroups[image.materialGroupIndex];
+			return existingGroup.imageMimeType == materialGroups[i].imageMimeType &&
+				existingGroup.imageData == materialGroups[i].imageData;
+		});
+		if (existingImage == embeddedImages.end ()) {
+			while (binary.size () % 4 != 0) binary.push_back (0);
+			const int imageIndex = static_cast<int> (embeddedImages.size ());
+			embeddedImages.push_back ({i, static_cast<std::uint32_t> (binary.size ()),
+				static_cast<int> (4 * materialGroups.size () + imageIndex)});
+			AppendBytes (binary, materialGroups[i].imageData.data (), materialGroups[i].imageData.size ());
+			materialImageIndices[i] = imageIndex;
+		} else {
+			materialImageIndices[i] = static_cast<int> (std::distance (embeddedImages.begin (), existingImage));
+		}
 		materialTextureIndices[i] = textureCount++;
-		imageOffsets[i] = static_cast<std::uint32_t> (binary.size ());
-		AppendBytes (binary, materialGroups[i].imageData.data (), materialGroups[i].imageData.size ());
 	}
 	while (binary.size () % 4 != 0) binary.push_back (0);
 	std::ostringstream json;
@@ -638,7 +664,7 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 		int textureIndex = 0;
 		for (std::size_t i = 0; i < materialGroups.size (); ++i) if (materialTextureIndices[i] >= 0) {
 			if (textureIndex > 0) json << ',';
-			json << "{\"source\":" << textureIndex << ",\"sampler\":" << textureIndex << '}';
+			json << "{\"source\":" << materialImageIndices[i] << ",\"sampler\":" << textureIndex << '}';
 			++textureIndex;
 		}
 		json << "],\"samplers\":[";
@@ -651,10 +677,11 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 			json << "{\"wrapS\":" << wrapS << ",\"wrapT\":" << wrapT << '}';
 		}
 		json << "],\"images\":[";
-		int imageIndex = 0;
-		for (std::size_t i = 0; i < materialGroups.size (); ++i) if (imageBufferViews[i] >= 0) {
-			if (imageIndex++ > 0) json << ',';
-			json << "{\"bufferView\":" << imageBufferViews[i] << ",\"mimeType\":\"" << materialGroups[i].imageMimeType << "\"}";
+		for (std::size_t i = 0; i < embeddedImages.size (); ++i) {
+			if (i > 0) json << ',';
+			const EmbeddedImage& image = embeddedImages[i];
+			json << "{\"bufferView\":" << image.bufferView << ",\"mimeType\":\""
+				<< materialGroups[image.materialGroupIndex].imageMimeType << "\"}";
 		}
 		json << ']';
 	}
@@ -668,10 +695,11 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 			<< "{\"buffer\":0,\"byteOffset\":" << textureCoordinateOffsets[i] << ",\"byteLength\":" << packedGeometry[i].textureCoordinates.size () * sizeof (Vec2) << ",\"target\":34962},"
 			<< "{\"buffer\":0,\"byteOffset\":" << indexOffsets[i] << ",\"byteLength\":" << packedGeometry[i].indices.size () * sizeof (std::uint32_t) << ",\"target\":34963}";
 	}
-	for (std::size_t i = 0; i < materialGroups.size (); ++i) if (imageBufferViews[i] >= 0) {
+	for (const EmbeddedImage& image : embeddedImages) {
 		if (!firstBufferView) json << ',';
 		firstBufferView = false;
-		json << "{\"buffer\":0,\"byteOffset\":" << imageOffsets[i] << ",\"byteLength\":" << materialGroups[i].imageData.size () << '}';
+		json << "{\"buffer\":0,\"byteOffset\":" << image.offset << ",\"byteLength\":"
+			<< materialGroups[image.materialGroupIndex].imageData.size () << '}';
 	}
 	json << "],\"accessors\":[";
 	for (std::size_t i = 0; i < packedGeometry.size (); ++i) {
@@ -745,6 +773,7 @@ void ExportSelectedElementsToGlb ()
 	std::vector<MaterialGroup> materialGroups;
     Int32 emptyElementCount = 0;
     Int32 failedElementCount = 0;
+	Int32 invisiblePolygonCount = 0;
     GS::UniString elementReport;
     try {
 		Scoped3DWindowSight sight;
@@ -752,7 +781,7 @@ void ExportSelectedElementsToGlb ()
 			ACAPI_WriteReport (GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.", sight.GetError ()), true);
 			return;
 		}
-        if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, elementReport)) {
+        if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, invisiblePolygonCount, elementReport)) {
             ACAPI_WriteReport ("The selected elements do not contain exportable 3D geometry.", true);
             return;
         }
@@ -767,7 +796,7 @@ void ExportSelectedElementsToGlb ()
 	}
 	const Int32 problemCount = emptyElementCount + failedElementCount;
 	if (problemCount == 0)
-		ACAPI_WriteReport ("GLB export complete.\nFailed or skipped elements: 0", true);
+		ACAPI_WriteReport (GS::UniString::Printf ("GLB export complete.\nFailed or skipped elements: 0\nInvisible Archicad polygons omitted: %d", invisiblePolygonCount), true);
 	else
-		ACAPI_WriteReport (GS::UniString::Printf ("GLB export complete.\nFailed or skipped elements: %d", problemCount) + elementReport, true);
+		ACAPI_WriteReport (GS::UniString::Printf ("GLB export complete.\nFailed or skipped elements: %d\nInvisible Archicad polygons omitted: %d", problemCount, invisiblePolygonCount) + elementReport, true);
 }
