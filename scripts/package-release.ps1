@@ -60,7 +60,8 @@ Copy-Item (Join-Path $ProjectRoot "THIRD_PARTY_NOTICES.txt") -Destination (Join-
 if (Test-Path $OutputZip) { Remove-Item $OutputZip }
 Compress-Archive -Path $StageDir -DestinationPath $OutputZip
 $hash = Get-FileHash -Path $OutputZip -Algorithm SHA256
-"$($hash.Hash.ToLowerInvariant())  $(Split-Path $OutputZip -Leaf)" | Out-File -Encoding ascii "$OutputZip.sha256"
+$checksum = "$($hash.Hash.ToLowerInvariant())  $(Split-Path $OutputZip -Leaf)`n"
+[IO.File]::WriteAllText("$OutputZip.sha256", $checksum, [Text.UTF8Encoding]::new($false))
 
 Write-Host "Created $OutputZip"
 Get-Content "$OutputZip.sha256"
