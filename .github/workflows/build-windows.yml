@@ -2,6 +2,11 @@ name: Build Windows Add-On
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Package version without the leading v
+        required: true
+        default: 0.2.1-alpha
   push:
     tags:
       - "v*"
@@ -141,8 +146,10 @@ jobs:
         run: |
           $version = if ($env:GITHUB_REF_TYPE -eq "tag") {
             $env:GITHUB_REF_NAME -replace '^v', ''
+          } elseif ("${{ inputs.version }}") {
+            "${{ inputs.version }}"
           } else {
-            "0.2.0-alpha"
+            "0.2.1-alpha"
           }
           $archiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$version"
           $stage = Join-Path $env:RUNNER_TEMP $archiveName
