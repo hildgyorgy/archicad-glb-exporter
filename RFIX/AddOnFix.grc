@@ -8,10 +8,10 @@
 
 'STR#' ADDON_INFO "Add-On Name and Description" {
     "Drop & View GLB Exporter"
-    "Exports selected elements from the active Archicad 3D window to GLB."
+    "Exports the complete current content and appearance of the active Archicad 3D window to GLB."
 }
 
 'STR#' ADDON_MENU "Menu" {
     "Drop & View GLB Exporter"
-    "Export selected 3D elements to GLB...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
+    "Export active 3D window to GLB...^E3^ES^EE^EI^ED^EL^EW^ET^EM"
 }

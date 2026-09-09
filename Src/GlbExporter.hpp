@@ -1,3 +1,3 @@
 #pragma once
 
-void ExportSelectedElementsToGlb ();
+void ExportActive3DWindowToGlb ();

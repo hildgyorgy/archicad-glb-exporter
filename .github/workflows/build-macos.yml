@@ -1,0 +1,245 @@
+name: Build macOS Add-On
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Package version without the leading v
+        required: true
+        type: string
+    secrets:
+      MACOS_CERTIFICATE_BASE64:
+        required: true
+      MACOS_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_ID:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
+      APPLE_APP_PASSWORD:
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version without the leading v
+        required: true
+        default: 0.3.0-alpha
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build Archicad ${{ matrix.archicad }}
+    runs-on: macos-26
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - archicad: 28
+            devkit_tag: "28.4001"
+          - archicad: 29
+            devkit_tag: "29.3100"
+    env:
+      ADDON_NAME: DropViewGLBExporter
+      DEVKIT_TAG: ${{ matrix.devkit_tag }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download Archicad API DevKit (macOS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import urllib.request
+
+          tag = os.environ["DEVKIT_TAG"]
+          token = os.environ["GITHUB_TOKEN"]
+          api_url = f"https://api.github.com/repos/GRAPHISOFT/archicad-api-devkit/releases/tags/{tag}"
+          request = urllib.request.Request(api_url, headers={
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "User-Agent": "DropViewGLBExporter-CI",
+              "X-GitHub-Api-Version": "2022-11-28",
+          })
+          with urllib.request.urlopen(request) as response:
+              release = json.load(response)
+          assets = [asset for asset in release["assets"]
+                    if re.match(r"(?i)^API\.Development\.Kit\.MAC\..*\.zip$", asset["name"])]
+          if len(assets) != 1:
+              raise SystemExit(f"Expected exactly one macOS API DevKit ZIP for {tag}, found {len(assets)}")
+          asset = assets[0]
+          download = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": "DropViewGLBExporter-CI"})
+          with urllib.request.urlopen(download) as response, open("devkit.zip", "wb") as output:
+              while chunk := response.read(1024 * 1024):
+                  output.write(chunk)
+          digest = asset.get("digest") or ""
+          if digest.startswith("sha256:"):
+              import hashlib
+              actual = hashlib.sha256(pathlib.Path("devkit.zip").read_bytes()).hexdigest()
+              expected = digest.removeprefix("sha256:").lower()
+              if actual != expected:
+                  raise SystemExit(f"DevKit checksum mismatch: expected {expected}, got {actual}")
+              print(f"DevKit SHA-256 verified: {actual}")
+          print(f"Downloaded {asset['name']}")
+          PY
+          ditto -x -k devkit.zip devkit
+          marker="$(find devkit -path '*/Support/Inc/ACAPinc.h' -print -quit)"
+          if [[ -z "$marker" ]]; then
+            echo "Could not locate Support/Inc/ACAPinc.h in the extracted DevKit." >&2
+            exit 1
+          fi
+          devkit_root="$(dirname "$(dirname "$(dirname "$marker")")")"
+          echo "AC_API_DEVKIT_DIR=$devkit_root" >> "$GITHUB_ENV"
+          echo "DevKit root: $devkit_root"
+
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Xcode \
+            -DAC_API_DEVKIT_DIR="$AC_API_DEVKIT_DIR" \
+            -DAC_ADDON_NAME="$ADDON_NAME" \
+            -DAC_ADDON_LANGUAGE=INT \
+            -DDROPVIEW_VERSION="${{ inputs.version }}"
+
+      - name: Build (Release)
+        shell: bash
+        run: cmake --build build --config Release
+
+      - name: Stage bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$(find build -type d -name "$ADDON_NAME.bundle" -print -quit)"
+          if [[ -z "$bundle" ]]; then
+            echo "Build succeeded but no bundle was found under build/." >&2
+            exit 1
+          fi
+          mkdir -p artifact
+          ditto --norsrc "$bundle" "artifact/$ADDON_NAME.bundle"
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ADDON_NAME }}-AC${{ matrix.archicad }}-macOS26-arm64
+          path: artifact
+          if-no-files-found: error
+
+  package-macos:
+    name: Sign, notarize and package Archicad 28-29
+    needs: build-macos
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      VERSION: ${{ inputs.version }}
+      MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download Archicad 28 bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: DropViewGLBExporter-AC28-macOS26-arm64
+          path: downloaded/Archicad 28
+
+      - name: Download Archicad 29 bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: DropViewGLBExporter-AC29-macOS26-arm64
+          path: downloaded/Archicad 29
+
+      - name: Import Developer ID certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            if [[ -z "${!variable}" ]]; then
+              echo "Required release secret is missing: $variable" >&2
+              exit 1
+            fi
+          done
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          keychain="$RUNNER_TEMP/dropview-signing.keychain-db"
+          keychain_password="$(uuidgen)$(uuidgen)"
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$certificate" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -nE 's/.*"(Developer ID Application:.*)"/\1/p' | head -n 1)"
+          if [[ -z "$identity" ]]; then
+            echo "No Developer ID Application identity was found in the supplied certificate." >&2
+            exit 1
+          fi
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: Build signed and notarized DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="DropView-GLB-Exporter-AC28-29-macOS26-arm64-v$VERSION"
+          stage="$RUNNER_TEMP/$archive_name"
+          mkdir -p "$stage/Archicad 28" "$stage/Archicad 29"
+          for version in 28 29; do
+            source_bundle="downloaded/Archicad $version/DropViewGLBExporter.bundle"
+            target_bundle="$stage/Archicad $version/DropViewGLBExporter.bundle"
+            if [[ ! -d "$source_bundle" ]]; then
+              echo "Missing Archicad $version bundle: $source_bundle" >&2
+              exit 1
+            fi
+            ditto --norsrc "$source_bundle" "$target_bundle"
+            xattr -cr "$target_bundle"
+            codesign --force --deep --strict --options runtime --timestamp \
+              --keychain "$SIGNING_KEYCHAIN" --sign "$CODESIGN_IDENTITY" "$target_bundle"
+            codesign --verify --deep --strict --verbose=2 "$target_bundle"
+          done
+          cp README.md "$stage/README.md"
+          cp LICENSE "$stage/LICENSE.txt"
+          cp THIRD_PARTY_NOTICES.txt "$stage/THIRD_PARTY_NOTICES.txt"
+          output="$GITHUB_WORKSPACE/$archive_name.dmg"
+          COPYFILE_DISABLE=1 hdiutil create -volname "Drop & View GLB Exporter" \
+            -srcfolder "$stage" -format UDZO -ov "$output"
+          codesign --force --timestamp --keychain "$SIGNING_KEYCHAIN" \
+            --sign "$CODESIGN_IDENTITY" "$output"
+          codesign --verify --strict --verbose=2 "$output"
+          hdiutil verify "$output"
+          xcrun notarytool submit "$output" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$output"
+          xcrun stapler validate "$output"
+          shasum -a 256 "$archive_name.dmg" > "$archive_name.dmg.sha256"
+          echo "ARCHIVE_NAME=$archive_name" >> "$GITHUB_ENV"
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: |
+            ${{ env.ARCHIVE_NAME }}.dmg
+            ${{ env.ARCHIVE_NAME }}.dmg.sha256
+          if-no-files-found: error
+
+      - name: Delete temporary signing keychain
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${SIGNING_KEYCHAIN:-}" && -f "$SIGNING_KEYCHAIN" ]]; then
+            security delete-keychain "$SIGNING_KEYCHAIN"
+          fi

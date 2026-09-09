@@ -17,6 +17,10 @@
 #include <unordered_map>
 #include <vector>
 
+#ifndef DROPVIEW_VERSION
+#define DROPVIEW_VERSION "development"
+#endif
+
 namespace {
 
 struct Vec3 { float x, y, z; };
@@ -49,14 +53,6 @@ private:
 	void* previousSight = nullptr;
 	GSErrCode error = APIERR_GENERAL;
 };
-
-template<class ElementType>
-void AppendElementHeads (GS::Array<API_Elem_Head>& elements, ElementType* items)
-{
-    const GSSize count = BMGetPtrSize (reinterpret_cast<GSPtr> (items)) / sizeof (ElementType);
-    for (GSSize i = 0; i < count; ++i)
-        elements.Push (items[i].head);
-}
 
 const char* GetElementTypeName (const API_ElemType& type)
 {
@@ -191,148 +187,6 @@ Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reve
 	return { static_cast<float> (x / length), static_cast<float> (z / length), static_cast<float> (-y / length) };
 }
 
-bool GetSelectedExportElements (GS::Array<API_Elem_Head>& elements, Int32& wallCount, Int32& slabCount, Int32& columnCount, Int32& beamCount, Int32& roofCount, Int32& shellCount, Int32& stairCount, Int32& railingCount, Int32& objectCount, Int32& lampCount, Int32& morphCount, Int32& meshCount, Int32& curtainWallCount, Int32& windowCount, Int32& doorCount, Int32& skylightCount)
-{
-    wallCount = slabCount = columnCount = beamCount = roofCount = shellCount = stairCount = railingCount = objectCount = lampCount = morphCount = meshCount = curtainWallCount = windowCount = doorCount = skylightCount = 0;
-    API_SelectionInfo selectionInfo {};
-    GS::Array<API_Neig> selection;
-    const GSErrCode error = ACAPI_Selection_Get (&selectionInfo, &selection, false);
-    BMKillHandle (reinterpret_cast<GSHandle*> (&selectionInfo.marquee.coords));
-    if (error != NoError) return false;
-    GS::HashSet<API_Guid> seen;
-    auto addElement = [&] (const API_Guid& guid) {
-        if (seen.Contains (guid)) return;
-        API_Element element {};
-        element.header.guid = guid;
-        if (ACAPI_Element_Get (&element) != NoError) return;
-        if (element.header.type == API_WallID) ++wallCount;
-        else if (element.header.type == API_SlabID) ++slabCount;
-        else if (element.header.type == API_ColumnID) ++columnCount;
-        else if (element.header.type == API_BeamID) ++beamCount;
-        else if (element.header.type == API_RoofID) ++roofCount;
-        else if (element.header.type == API_ShellID) ++shellCount;
-        else if (element.header.type == API_StairID) ++stairCount;
-        else if (element.header.type == API_RailingID) ++railingCount;
-        else if (element.header.type == API_ObjectID) ++objectCount;
-        else if (element.header.type == API_LampID) ++lampCount;
-        else if (element.header.type == API_MorphID) ++morphCount;
-        else if (element.header.type == API_MeshID) ++meshCount;
-        else if (element.header.type == API_CurtainWallID) ++curtainWallCount;
-        else if (element.header.type == API_WindowID) ++windowCount;
-        else if (element.header.type == API_DoorID) ++doorCount;
-        else if (element.header.type == API_SkylightID) ++skylightCount;
-        else return;
-        seen.Add (guid);
-        elements.Push (element.header);
-    };
-    for (const auto& selected : selection) addElement (selected.guid);
-    // Copy the initial selection: appending connected openings may reallocate elements.
-    const auto selectedElements = elements;
-    for (const auto& element : selectedElements) {
-        if (element.type == API_WallID) {
-            GS::Array<API_Guid> windows;
-            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_WindowID, &windows) != NoError) {
-                ACAPI_WriteReport ("The windows connected to a selected wall could not be read. Export stopped.", true);
-                return false;
-            }
-            for (const auto& guid : windows) addElement (guid);
-            GS::Array<API_Guid> doors;
-            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_DoorID, &doors) != NoError) {
-                ACAPI_WriteReport ("The doors connected to a selected wall could not be read. Export stopped.", true);
-                return false;
-            }
-            for (const auto& guid : doors) addElement (guid);
-        }
-        if (element.type == API_RoofID || element.type == API_ShellID) {
-            GS::Array<API_Guid> skylights;
-            if (ACAPI_Grouping_GetConnectedElements (element.guid, API_SkylightID, &skylights) != NoError) {
-                ACAPI_WriteReport ("The skylights connected to a selected roof or shell could not be read. Export stopped.", true);
-                return false;
-            }
-            for (const auto& guid : skylights) addElement (guid);
-        }
-    }
-
-    // Composite elements keep their actual 3D bodies on subelements.
-    GS::Array<API_Elem_Head> modelElements;
-    for (const auto& element : elements) {
-        if (element.type != API_ColumnID && element.type != API_BeamID && element.type != API_StairID &&
-            element.type != API_RailingID && element.type != API_CurtainWallID) {
-            modelElements.Push (element);
-            continue;
-        }
-		// Depending on the element family, a body in the 3D sight can refer either
-		// to the parent or to one of its physical subelements. Keep both GUIDs.
-		modelElements.Push (element);
-
-        API_ElementMemo memo {};
-        const UInt64 memoMask = element.type == API_ColumnID ? APIMemoMask_ColumnSegment :
-            element.type == API_BeamID ? APIMemoMask_BeamSegment :
-            element.type == API_StairID ? APIMemoMask_StairRiser | APIMemoMask_StairTread | APIMemoMask_StairStructure :
-            element.type == API_CurtainWallID ? APIMemoMask_CWallFrames | APIMemoMask_CWallPanels |
-                APIMemoMask_CWallJunctions | APIMemoMask_CWallAccessories :
-            APIMemoMask_RailingPost | APIMemoMask_RailingInnerPost | APIMemoMask_RailingRail |
-            APIMemoMask_RailingHandrail | APIMemoMask_RailingToprail | APIMemoMask_RailingPanel |
-            APIMemoMask_RailingBaluster | APIMemoMask_RailingRailEnd | APIMemoMask_RailingHandrailEnd |
-            APIMemoMask_RailingToprailEnd | APIMemoMask_RailingRailConnection |
-            APIMemoMask_RailingHandrailConnection | APIMemoMask_RailingToprailConnection;
-        const GSErrCode memoError = ACAPI_Element_GetMemo (element.guid, &memo, memoMask);
-        if (memoError != NoError) {
-            ACAPI_WriteReport (GS::UniString::Printf ("The selected %s components could not be read (error: %d). Export stopped.",
-                element.type == API_ColumnID ? "column" : element.type == API_BeamID ? "beam" : element.type == API_StairID ? "stair" : element.type == API_CurtainWallID ? "curtain wall" : "railing", memoError), true);
-            ACAPI_DisposeElemMemoHdls (&memo);
-            return false;
-        }
-
-        if (element.type == API_ColumnID) {
-            const GSSize segmentCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.columnSegments)) / sizeof (API_ColumnSegmentType);
-            for (GSSize i = 0; i < segmentCount; ++i)
-                modelElements.Push (memo.columnSegments[i].head);
-        } else if (element.type == API_BeamID) {
-            const GSSize segmentCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.beamSegments)) / sizeof (API_BeamSegmentType);
-            for (GSSize i = 0; i < segmentCount; ++i)
-                modelElements.Push (memo.beamSegments[i].head);
-        } else if (element.type == API_StairID) {
-            const GSSize riserCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.stairRisers)) / sizeof (API_StairRiserType);
-            for (GSSize i = 0; i < riserCount; ++i)
-                modelElements.Push (memo.stairRisers[i].head);
-            const GSSize treadCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.stairTreads)) / sizeof (API_StairTreadType);
-            for (GSSize i = 0; i < treadCount; ++i)
-                modelElements.Push (memo.stairTreads[i].head);
-            const GSSize structureCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.stairStructures)) / sizeof (API_StairStructureType);
-            for (GSSize i = 0; i < structureCount; ++i)
-                modelElements.Push (memo.stairStructures[i].head);
-        } else if (element.type == API_RailingID) {
-            AppendElementHeads (modelElements, memo.railingPosts);
-            AppendElementHeads (modelElements, memo.railingInnerPosts);
-            AppendElementHeads (modelElements, memo.railingRails);
-            AppendElementHeads (modelElements, memo.railingHandrails);
-            AppendElementHeads (modelElements, memo.railingToprails);
-            AppendElementHeads (modelElements, memo.railingPanels);
-            AppendElementHeads (modelElements, memo.railingBalusters);
-            AppendElementHeads (modelElements, memo.railingRailEnds);
-            AppendElementHeads (modelElements, memo.railingHandrailEnds);
-            AppendElementHeads (modelElements, memo.railingToprailEnds);
-            AppendElementHeads (modelElements, memo.railingRailConnections);
-            AppendElementHeads (modelElements, memo.railingHandrailConnections);
-            AppendElementHeads (modelElements, memo.railingToprailConnections);
-        } else {
-            AppendElementHeads (modelElements, memo.cWallFrames);
-            const GSSize panelCount = BMGetPtrSize (reinterpret_cast<GSPtr> (memo.cWallPanels)) / sizeof (API_CWPanelType);
-            for (GSSize i = 0; i < panelCount; ++i) {
-                bool isDegenerate = false;
-                if (ACAPI_CurtainWall_IsCWPanelDegenerate (&memo.cWallPanels[i].head.guid, &isDegenerate) == NoError && !isDegenerate)
-                    modelElements.Push (memo.cWallPanels[i].head);
-            }
-            AppendElementHeads (modelElements, memo.cWallJunctions);
-            AppendElementHeads (modelElements, memo.cWallAccessories);
-        }
-        ACAPI_DisposeElemMemoHdls (&memo);
-    }
-    elements = std::move (modelElements);
-    return !elements.IsEmpty ();
-}
-
 std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon, Int32 bodyVertexCount)
 {
     std::vector<std::vector<Int32>> rings (1);
@@ -361,7 +215,7 @@ std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon,
     return rings;
 }
 
-bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& positions, std::vector<Vec3>& normals,
+bool CollectMesh (std::vector<Vec3>& positions, std::vector<Vec3>& normals,
 	std::vector<Vec2>& textureCoordinates, std::vector<MaterialGroup>& materialGroups, Int32& emptyElementCount,
     Int32& failedElementCount, Int32& invisiblePolygonCount, GS::UniString& elementReport)
 {
@@ -372,9 +226,6 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 	Int32 visibleBodyCount = 0;
 	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
 		return false;
-	GS::HashSet<API_Guid> exportGuids;
-	for (const API_Elem_Head& element : elements)
-		exportGuids.Add (element.guid);
 	struct VisibleBodyGroup {
 		API_Elem_Head parent {};
 		std::vector<Int32> bodyIndices;
@@ -384,7 +235,7 @@ bool CollectMesh (const GS::Array<API_Elem_Head>& elements, std::vector<Vec3>& p
 		API_Component3D bodyComponent {};
 		bodyComponent.header.typeID = API_BodyID;
 		bodyComponent.header.index = bodyIndex;
-		if (ACAPI_ModelAccess_GetComponent (&bodyComponent) != NoError || !exportGuids.Contains (bodyComponent.body.parent.guid))
+		if (ACAPI_ModelAccess_GetComponent (&bodyComponent) != NoError)
 			continue;
 		auto group = std::find_if (visibleBodyGroups.begin (), visibleBodyGroups.end (), [&] (const VisibleBodyGroup& candidate) {
 			return candidate.parent.guid == bodyComponent.body.parent.guid;
@@ -615,7 +466,7 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 	while (binary.size () % 4 != 0) binary.push_back (0);
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Drop & View GLB Exporter v0.2.1-alpha\"},"
+		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"Drop & View GLB Exporter v" << DROPVIEW_VERSION << "\"},"
 		<< "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < materialGroups.size (); ++i) {
 		if (i > 0) json << ',';
@@ -734,33 +585,11 @@ bool WriteGlb (const IO::Location& location, const std::vector<Vec3>& positions,
 
 } // namespace
 
-void ExportSelectedElementsToGlb ()
+void ExportActive3DWindowToGlb ()
 {
-	GS::Array<API_Elem_Head> elements;
-	Int32 wallCount = 0;
-	Int32 slabCount = 0;
-    Int32 columnCount = 0;
-    Int32 beamCount = 0;
-    Int32 roofCount = 0;
-    Int32 shellCount = 0;
-    Int32 stairCount = 0;
-    Int32 railingCount = 0;
-    Int32 objectCount = 0;
-    Int32 lampCount = 0;
-    Int32 morphCount = 0;
-    Int32 meshCount = 0;
-    Int32 curtainWallCount = 0;
-    Int32 windowCount = 0;
-    Int32 doorCount = 0;
-    Int32 skylightCount = 0;
-	if (!GetSelectedExportElements (elements, wallCount, slabCount, columnCount, beamCount, roofCount, shellCount, stairCount, railingCount, objectCount, lampCount, morphCount, meshCount, curtainWallCount, windowCount, doorCount, skylightCount)) {
-		ACAPI_WriteReport ("Select at least one supported 3D element.", true);
-		return;
-	}
-
 	// Ask for the destination before potentially expensive stair/railing mesh processing.
 	DG::FileDialog dialog (DG::FileDialog::Save);
-	dialog.SetTitle ("Export selected 3D elements to GLB");
+	dialog.SetTitle ("Export active 3D window to GLB");
 	FTM::FileTypeManager manager ("DropViewGLBExporterFileTypes");
 	const FTM::TypeID glbType = manager.AddType (FTM::FileType ("glTF Binary", "glb", 'GLB ', 'GLB ', -1));
 	dialog.AddFilter (glbType);
@@ -781,8 +610,8 @@ void ExportSelectedElementsToGlb ()
 			ACAPI_WriteReport (GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.", sight.GetError ()), true);
 			return;
 		}
-        if (!CollectMesh (elements, positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, invisiblePolygonCount, elementReport)) {
-            ACAPI_WriteReport ("The selected elements do not contain exportable 3D geometry.", true);
+        if (!CollectMesh (positions, normals, textureCoordinates, materialGroups, emptyElementCount, failedElementCount, invisiblePolygonCount, elementReport)) {
+            ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
             return;
         }
     } catch (const std::exception& error) {

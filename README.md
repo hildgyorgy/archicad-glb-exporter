@@ -1,10 +1,10 @@
 # Drop & View GLB Exporter for Archicad
 
-An experimental native Archicad add-on that exports selected elements from the active 3D window to a self-contained GLB file. It is designed for the [Drop & View](https://hildgyorgy.github.io/drop-3d-view/) client-viewing workflow, while producing standard GLB files that can also be opened in other compatible viewers.
+An experimental native Archicad add-on that exports the complete current content of the active 3D window to a self-contained GLB file. It is designed for the [Drop & View](https://hildgyorgy.github.io/drop-3d-view/) client-viewing workflow, while producing standard GLB files that can also be opened in other compatible viewers.
 
 ## Current release
 
-The published **v0.2.0-alpha** package is an experimental build for:
+The latest published package is an experimental alpha build for:
 
 - Archicad 28 and 29
 - Apple Silicon Macs (`arm64`) with macOS 26 or later
@@ -14,7 +14,7 @@ Intel Macs and earlier versions of macOS are not currently supported.
 
 ## What is exported
 
-The add-on uses the active Archicad 3D window as the source of truth. It exports the selected supported elements with the geometry and effective surface appearance shown there, including:
+The add-on uses the active Archicad 3D window as the source of truth. It exports every visible 3D body with the geometry and effective surface appearance shown there, including:
 
 - 3D cuts and other geometry visible in the active 3D window;
 - surface colours, transparency and embedded image textures;
@@ -22,7 +22,7 @@ The add-on uses the active Archicad 3D window as the source of truth. It exports
 - active Graphical Overrides;
 - surface-based GLB mesh groups for visibility controls in compatible viewers.
 
-Supported element families currently include walls, slabs, columns, beams, roofs, shells, stairs, railings, objects, lamps, Morphs, meshes/terrain, curtain walls, windows, doors and skylights. Connected windows, doors and skylights are included when their host wall, roof or shell is selected.
+Supported element families currently include walls, slabs, columns, beams, roofs, shells, stairs, railings, objects, lamps, Morphs, meshes/terrain, curtain walls, windows, doors and skylights.
 
 Lighting, shadows, the Archicad environment, cameras and 2D drawing information are not baked into the GLB.
 
@@ -39,10 +39,9 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 
 1. Open and activate an Archicad 3D window.
 2. Prepare the geometry and appearance you want to share, including 3D cuts and Graphical Overrides where required.
-3. Select the elements to export.
-4. Choose **Drop & View GLB Exporter > Export selected 3D elements to GLB…**.
-5. Choose the destination `.glb` file.
-6. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+3. Choose **Drop & View GLB Exporter > Export active 3D window to GLB…**.
+4. Choose the destination `.glb` file.
+5. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
 
 The export command is disabled outside the 3D window. If an element contains invalid polygons, the exporter attempts to export its valid geometry and reports the skipped parts after completion.
 
@@ -73,7 +72,7 @@ Do not publish confidential project files in a public issue.
 
 ## Privacy
 
-The add-on reads the selected model geometry locally and writes the chosen GLB file locally. It does not upload the Archicad model or require an online account.
+The add-on reads the active 3D window geometry locally and writes the chosen GLB file locally. It does not upload the Archicad model or require an online account.
 
 ## Licence
 

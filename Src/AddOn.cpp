@@ -50,7 +50,7 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* params)
 				ACAPI_WriteReport ("GLB export is available only from the active 3D window.", true);
 				return NoError;
 			}
-			ExportSelectedElementsToGlb ();
+			ExportActive3DWindowToGlb ();
 		}
 	}
     return NoError;

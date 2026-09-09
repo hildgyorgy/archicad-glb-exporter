@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = (Resolve-Path "$PSScriptRoot/..").Path
-$ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { "0.2.0-alpha" }
+$ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { "0.3.0-alpha" }
 $ArchiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$ReleaseVersion"
 $AddonName = "DropViewGLBExporter"
 $TemporaryRoot = Join-Path $env:TEMP "dropview-glb-exporter-release"
@@ -33,7 +33,8 @@ foreach ($target in $Targets) {
     cmake -S $ProjectRoot -B $BuildDir -G "Visual Studio 17 2022" -A x64 -T $target.Toolset `
         -DAC_API_DEVKIT_DIR="$($target.DevKit)" `
         -DAC_ADDON_NAME="$AddonName" `
-        -DAC_ADDON_LANGUAGE="INT"
+        -DAC_ADDON_LANGUAGE="INT" `
+        -DDROPVIEW_VERSION="$ReleaseVersion"
     cmake --build $BuildDir --config Release
 
     $ApxPath = Get-ChildItem -Path $BuildDir -Recurse -Filter "$AddonName.apx" | Select-Object -First 1

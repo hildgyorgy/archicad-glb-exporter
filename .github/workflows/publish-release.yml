@@ -1,0 +1,104 @@
+name: Publish Full Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the leading v
+        required: true
+        default: 0.3.0-alpha
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a pre-release
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-dropview-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release request
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Validate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version='${{ inputs.version }}'
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows packages
+    needs: validate
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+
+  macos:
+    name: macOS packages
+    needs: validate
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      version: ${{ needs.validate.outputs.version }}
+    secrets: inherit
+
+  publish:
+    name: Publish GitHub release
+    needs: [validate, windows, macos]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download Windows package
+        uses: actions/download-artifact@v8
+        with:
+          name: DropView-GLB-Exporter-AC28-29-Windows-x64-v${{ env.VERSION }}
+          path: release-assets
+
+      - name: Download macOS package
+        uses: actions/download-artifact@v8
+        with:
+          name: DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${{ env.VERSION }}
+          path: release-assets
+
+      - name: Publish release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          mapfile -d '' assets < <(find release-assets -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.sha256' \) -print0 | sort -z)
+          if [[ "${#assets[@]}" -ne 4 ]]; then
+            echo "Expected four release files, found ${#assets[@]}." >&2
+            find release-assets -type f -print
+            exit 1
+          fi
+          arguments=(release create "$tag" "${assets[@]}" \
+            --target "$GITHUB_SHA" \
+            --title "Drop & View GLB Exporter $tag" \
+            --notes-file RELEASE_NOTES.md)
+          if [[ '${{ inputs.prerelease }}' == 'true' ]]; then
+            arguments+=(--prerelease)
+          fi
+          gh "${arguments[@]}"

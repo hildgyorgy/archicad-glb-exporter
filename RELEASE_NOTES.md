@@ -1,6 +1,6 @@
-# Drop & View GLB Exporter v0.2.0-alpha
+# Drop & View GLB Exporter v0.3.0-alpha
 
-This experimental release adds Archicad 28 and Windows support and improves the visual match of textured surfaces.
+This experimental release makes the active Archicad 3D window the complete source of the exported GLB and adds repeatable multi-platform release automation.
 
 ## Requirements
 
@@ -9,14 +9,15 @@ This experimental release adds Archicad 28 and Windows support and improves the 
 
 ## Highlights
 
-- Exports selected elements using the active Archicad 3D window geometry.
+- Exports every visible body in the active Archicad 3D window without requiring an Archicad selection.
 - Preserves visible 3D cuts, effective surface colours, transparency, embedded textures, texture size and rotation.
 - Preserves the result of active Graphical Overrides.
 - Supports major architectural, structural, library-object and site element families.
-- Includes connected doors, windows and skylights with their selected hosts.
+- Includes visible doors, windows and skylights directly from the active 3D model.
 - Groups GLB meshes by effective surface.
 - Continues past invalid polygons where possible and reports skipped geometry.
 - Uses the embedded texture as the glTF base colour without applying Archicad's surface colour a second time.
+- Builds Archicad 28 and 29 packages for macOS and Windows from one GitHub Actions release workflow.
 
 ## Alpha notice
 
