@@ -1,9 +1,17 @@
 #include "../Src/PolygonTriangulation.hpp"
 #include <iostream>
-#include <cassert>
+#include <stdexcept>
+
 using namespace GlbGeometry;
 using XY = std::array<double, 2>;
 using Shape = std::vector<std::vector<XY>>;
+
+void Require (bool condition, const char* message)
+{
+	if (!condition)
+		throw std::runtime_error (message);
+}
+
 bool inside (const XY& p, const std::vector<XY>& ring) {
     bool result = false;
     for (std::size_t i=0,j=ring.size()-1;i<ring.size();j=i++) {
@@ -25,16 +33,16 @@ void check (const Shape& shape, double area, int axis, bool reverse) {
     for(std::size_t i=0;i<indices.size();i+=3) {
         const auto& p=flat.at(indices[i]); const auto& q=flat.at(indices[i+1]); const auto& r=flat.at(indices[i+2]);
         double cr=(q[a]-p[a])*(r[b]-p[b])-(q[b]-p[b])*(r[a]-p[a]);
-        assert(cr*normal[axis]>0); sum+=std::abs(cr)/2;
+        Require (cr * normal[axis] > 0, "Triangle winding is incorrect"); sum+=std::abs(cr)/2;
         // Interior samples independently catch triangles crossing the notch or holes.
         for(int u=1;u<10;++u) for(int v=1;u+v<10;++v) {
             XY sample{};
             for(int k=0;k<2;++k) {int dim=k==0?a:b; sample[k]=(p[dim]*(10-u-v)+q[dim]*u+r[dim]*v)/10-(k==0?100000:-100000);}
-            assert(inside(sample,shape[0]));
-            for(std::size_t h=1;h<shape.size();++h) assert(!inside(sample,shape[h]));
+            Require (inside (sample, shape[0]), "Triangle extends outside the outer contour");
+            for(std::size_t h=1;h<shape.size();++h) Require (!inside (sample, shape[h]), "Triangle crosses a hole");
         }
     }
-    assert(std::abs(sum-area)<1e-7);
+    Require (std::abs (sum - area) < 1e-7, "Triangulated area differs from expected area");
 }
 int main() {
     std::vector<std::pair<Shape,double>> cases={
@@ -54,7 +62,7 @@ int main() {
         for (XY xy:std::vector<XY>{{0,0},{1,0},{2,0}}) { Point p{}; p[a]=xy[0]; p[b]=xy[1]; rings[0].push_back(p); }
         bool rejected=false;
         try { (void) Triangulate(rings,normal); } catch (const DegeneratePolygon&) { rejected=true; }
-        assert(rejected);
+        Require (rejected, "Zero-area polygon was not rejected");
     }
     std::cout<<"48 triangulation cases passed: area, cutouts, holes, winding, three planes, large offset, zero-area rejection.\n";
 }

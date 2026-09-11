@@ -1,6 +1,14 @@
 # Adapted from the Graphisoft API DevKit example build configuration.
 cmake_minimum_required (VERSION 3.16)
 
+option (DROPVIEW_TESTS_ONLY "Configure the portable tests without an Archicad API DevKit." OFF)
+if (DROPVIEW_TESTS_ONLY)
+	project (DropViewGLBExporterTests LANGUAGES CXX)
+	include (CTest)
+	add_subdirectory (tests)
+	return ()
+endif ()
+
 # Find Python 3
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 message(STATUS "Using Python: ${Python3_EXECUTABLE} (version ${Python3_VERSION})")
@@ -97,6 +105,11 @@ endif ()
 add_definitions (-DACExtension)
 
 project (${AC_ADDON_NAME})
+
+include (CTest)
+if (BUILD_TESTING)
+	add_subdirectory (tests)
+endif ()
 
 set (AddOnSourcesFolder ./Src)
 set (AddOnResourcesFolder .)

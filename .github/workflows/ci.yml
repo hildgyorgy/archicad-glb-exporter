@@ -1,0 +1,41 @@
+name: Portable Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / ${{ matrix.configuration }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-26
+          - windows-2022
+        configuration:
+          - Debug
+          - Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Configure portable tests
+        run: >-
+          cmake -S . -B build-tests
+          -DDROPVIEW_TESTS_ONLY=ON
+          -DCMAKE_BUILD_TYPE=${{ matrix.configuration }}
+
+      - name: Build portable tests
+        run: cmake --build build-tests --config ${{ matrix.configuration }}
+
+      - name: Run portable tests
+        run: ctest --test-dir build-tests --build-config ${{ matrix.configuration }} --output-on-failure
