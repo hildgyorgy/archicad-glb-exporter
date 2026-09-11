@@ -13,6 +13,18 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+def read_accessor(document: dict, binary: bytes, accessor_index: int) -> list[tuple]:
+    accessor = document["accessors"][accessor_index]
+    view = document["bufferViews"][accessor["bufferView"]]
+    component_formats = {5125: "I", 5126: "f"}
+    component_counts = {"SCALAR": 1, "VEC2": 2, "VEC3": 3}
+    count = component_counts[accessor["type"]]
+    item_format = "<" + component_formats[accessor["componentType"]] * count
+    item_size = struct.calcsize(item_format)
+    start = view.get("byteOffset", 0) + accessor.get("byteOffset", 0)
+    return [struct.unpack_from(item_format, binary, start + index * item_size) for index in range(accessor["count"])]
+
+
 def main() -> None:
     require(len(sys.argv) == 2, "validator expects the fixture-generator path")
     with tempfile.TemporaryDirectory() as directory:
@@ -32,6 +44,8 @@ def main() -> None:
     json_start = 20
     json_end = json_start + json_length
     document = json.loads(data[json_start:json_end].decode("utf-8").rstrip(" \0"))
+
+    require(document["asset"]["generator"] == 'Drop & View "writer"\ntest', "generator JSON escaping changed")
 
     binary_length, binary_type = struct.unpack_from("<II", data, json_end)
     require(binary_type == 0x004E4942, "second chunk is not binary")
@@ -58,13 +72,21 @@ def main() -> None:
         required = accessor["count"] * component_sizes[accessor["componentType"]] * component_counts[accessor["type"]]
         require(required <= views[accessor["bufferView"]]["byteLength"], "accessor exceeds its bufferView")
 
-    require(len(document["meshes"]) == 2, "expected two material-group meshes")
-    require(len(accessors) == 8, "expected four accessors per mesh")
+    require(len(document["meshes"]) == 3, "expected three material-group meshes")
+    require(len(accessors) == 12, "expected four accessors per mesh")
+    expected_positions = [
+        [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
+        [(0.0, 0.0, 1.0), (2.0, 0.0, 1.0), (0.0, 3.0, 1.0)],
+        [(-2.0, 1.0, 4.0), (1.0, 1.0, 4.0), (-2.0, 5.0, 4.0)],
+    ]
     for mesh_index, mesh in enumerate(document["meshes"]):
         primitive = mesh["primitives"][0]
         referenced = list(primitive["attributes"].values()) + [primitive["indices"]]
         require(all(0 <= index < len(accessors) for index in referenced), "primitive references an invalid accessor")
         require(primitive["material"] == mesh_index, "primitive references the wrong material")
+        require(read_accessor(document, binary, primitive["attributes"]["POSITION"]) == expected_positions[mesh_index],
+                "position data changed")
+        require(read_accessor(document, binary, primitive["indices"]) == [(0,), (1,), (2,)], "index data changed")
 
     materials = document["materials"]
     require(materials[0]["alphaMode"] == "MASK", "masked material lost its alpha mode")
@@ -72,6 +94,11 @@ def main() -> None:
     require(materials[1]["alphaMode"] == "BLEND", "transparent material lost its alpha mode")
     require(materials[1]["pbrMetallicRoughness"]["baseColorFactor"] == [1.0, 1.0, 1.0, 0.5],
             "textured material base colour or alpha changed")
+    require(materials[2]["name"] == "Solid \\ surface\nline", "material-name JSON escaping changed")
+    require(materials[2]["pbrMetallicRoughness"]["baseColorFactor"] == [0.125, 0.25, 0.75, 1.0],
+            "untextured Archicad surface colour changed")
+    require("baseColorTexture" not in materials[2]["pbrMetallicRoughness"], "solid material unexpectedly gained a texture")
+    require("alphaMode" not in materials[2], "opaque solid material unexpectedly gained an alpha mode")
 
     require(len(document["images"]) == 1, "identical embedded images were not deduplicated")
     require(len(document["textures"]) == 2, "expected one texture binding per textured material")
