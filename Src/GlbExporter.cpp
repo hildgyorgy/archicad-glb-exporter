@@ -45,7 +45,10 @@ public:
 		}
 	}
 
-	GSErrCode GetError () const { return error; }
+	GSErrCode GetError () const
+	{
+		return error;
+	}
 
 private:
 	void* previousSight = nullptr;
@@ -54,33 +57,53 @@ private:
 
 const char* GetElementTypeName (const API_ElemType& type)
 {
-    if (type == API_WallID) return "Wall";
-    if (type == API_SlabID) return "Slab";
-    if (type == API_ColumnSegmentID) return "Column segment";
-    if (type == API_BeamSegmentID) return "Beam segment";
-    if (type == API_RoofID) return "Roof";
-    if (type == API_ShellID) return "Shell";
-    if (type == API_RiserID) return "Stair riser";
-    if (type == API_TreadID) return "Stair tread";
-    if (type == API_StairStructureID) return "Stair structure";
-    if (type == API_RailingPostID || type == API_RailingInnerPostID || type == API_RailingRailID ||
-        type == API_RailingHandrailID || type == API_RailingToprailID || type == API_RailingPanelID ||
-        type == API_RailingBalusterID || type == API_RailingRailEndID || type == API_RailingHandrailEndID ||
-        type == API_RailingToprailEndID || type == API_RailingRailConnectionID ||
-        type == API_RailingHandrailConnectionID || type == API_RailingToprailConnectionID)
-        return "Railing component";
-    if (type == API_ObjectID) return "Object";
-    if (type == API_LampID) return "Lamp";
-    if (type == API_MorphID) return "MORPH";
-    if (type == API_MeshID) return "Mesh/terrain";
-    if (type == API_CurtainWallFrameID) return "Curtain wall frame";
-    if (type == API_CurtainWallPanelID) return "Curtain wall panel";
-    if (type == API_CurtainWallJunctionID) return "Curtain wall junction";
-    if (type == API_CurtainWallAccessoryID) return "Curtain wall accessory";
-    if (type == API_WindowID) return "Window";
-    if (type == API_DoorID) return "Door";
-    if (type == API_SkylightID) return "Skylight";
-    return "3D element";
+	if (type == API_WallID)
+		return "Wall";
+	if (type == API_SlabID)
+		return "Slab";
+	if (type == API_ColumnSegmentID)
+		return "Column segment";
+	if (type == API_BeamSegmentID)
+		return "Beam segment";
+	if (type == API_RoofID)
+		return "Roof";
+	if (type == API_ShellID)
+		return "Shell";
+	if (type == API_RiserID)
+		return "Stair riser";
+	if (type == API_TreadID)
+		return "Stair tread";
+	if (type == API_StairStructureID)
+		return "Stair structure";
+	if (type == API_RailingPostID || type == API_RailingInnerPostID || type == API_RailingRailID ||
+	    type == API_RailingHandrailID || type == API_RailingToprailID || type == API_RailingPanelID ||
+	    type == API_RailingBalusterID || type == API_RailingRailEndID || type == API_RailingHandrailEndID ||
+	    type == API_RailingToprailEndID || type == API_RailingRailConnectionID ||
+	    type == API_RailingHandrailConnectionID || type == API_RailingToprailConnectionID)
+		return "Railing component";
+	if (type == API_ObjectID)
+		return "Object";
+	if (type == API_LampID)
+		return "Lamp";
+	if (type == API_MorphID)
+		return "MORPH";
+	if (type == API_MeshID)
+		return "Mesh/terrain";
+	if (type == API_CurtainWallFrameID)
+		return "Curtain wall frame";
+	if (type == API_CurtainWallPanelID)
+		return "Curtain wall panel";
+	if (type == API_CurtainWallJunctionID)
+		return "Curtain wall junction";
+	if (type == API_CurtainWallAccessoryID)
+		return "Curtain wall accessory";
+	if (type == API_WindowID)
+		return "Window";
+	if (type == API_DoorID)
+		return "Door";
+	if (type == API_SkylightID)
+		return "Skylight";
+	return "3D element";
 }
 
 Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const DropView::Glb::TextureParameters& texture)
@@ -97,7 +120,7 @@ Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const DropView::Glb::
 	const double rotatedV = sine * uv.u + cosine * uv.v;
 	const double u = std::abs (texture.xSize) > 1.0e-9 ? rotatedU / texture.xSize : rotatedU;
 	const double v = std::abs (texture.ySize) > 1.0e-9 ? rotatedV / texture.ySize : rotatedV;
-	return { static_cast<float> (u), static_cast<float> (1.0 - v) };
+	return {static_cast<float> (u), static_cast<float> (1.0 - v)};
 }
 
 void LoadTextureImage (const IO::Location* location, Material& material)
@@ -132,10 +155,13 @@ void LoadTextureImage (const IO::Location* location, Material& material)
 
 Vec3 ConvertPosition (const API_Tranmat& transform, const API_VertType& vertex)
 {
-	const double x = transform.tmx[0] * vertex.x + transform.tmx[1] * vertex.y + transform.tmx[2] * vertex.z + transform.tmx[3];
-	const double y = transform.tmx[4] * vertex.x + transform.tmx[5] * vertex.y + transform.tmx[6] * vertex.z + transform.tmx[7];
-	const double z = transform.tmx[8] * vertex.x + transform.tmx[9] * vertex.y + transform.tmx[10] * vertex.z + transform.tmx[11];
-	return { static_cast<float> (x), static_cast<float> (z), static_cast<float> (-y) };
+	const double x =
+	    transform.tmx[0] * vertex.x + transform.tmx[1] * vertex.y + transform.tmx[2] * vertex.z + transform.tmx[3];
+	const double y =
+	    transform.tmx[4] * vertex.x + transform.tmx[5] * vertex.y + transform.tmx[6] * vertex.z + transform.tmx[7];
+	const double z =
+	    transform.tmx[8] * vertex.x + transform.tmx[9] * vertex.y + transform.tmx[10] * vertex.z + transform.tmx[11];
+	return {static_cast<float> (x), static_cast<float> (z), static_cast<float> (-y)};
 }
 
 Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reverse)
@@ -145,7 +171,7 @@ Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reve
 	const double y = sign * (transform.tmx[4] * normal.x + transform.tmx[5] * normal.y + transform.tmx[6] * normal.z);
 	const double z = sign * (transform.tmx[8] * normal.x + transform.tmx[9] * normal.y + transform.tmx[10] * normal.z);
 	const double length = std::sqrt (x * x + y * y + z * z);
-	return { static_cast<float> (x / length), static_cast<float> (z / length), static_cast<float> (-y / length) };
+	return {static_cast<float> (x / length), static_cast<float> (z / length), static_cast<float> (-y / length)};
 }
 
 std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon, Int32 bodyVertexCount)
@@ -186,11 +212,9 @@ struct VisibleBodyGroup {
 };
 
 struct CollectionCheckpoint {
-	explicit CollectionCheckpoint (const Model& model) :
-		positionCount (model.positions.size ()),
-		normalCount (model.normals.size ()),
-		textureCoordinateCount (model.textureCoordinates.size ()),
-		materialCount (model.materials.size ())
+	explicit CollectionCheckpoint (const Model& model)
+	    : positionCount (model.positions.size ()), normalCount (model.normals.size ()),
+	      textureCoordinateCount (model.textureCoordinates.size ()), materialCount (model.materials.size ())
 	{
 		materialIndexCounts.reserve (materialCount);
 		for (const Material& material : model.materials)
@@ -280,8 +304,8 @@ std::size_t GetOrCreateMaterial (Int32 sourceIndex, Model& model, MaterialIndexM
 }
 
 void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 bodyVertexCount,
-	const API_Tranmat& transform, Int32 elementIndex, Int32 localBodyIndex,
-	Model& model, MaterialIndexMap& materialIndices)
+                     const API_Tranmat& transform, Int32 elementIndex, Int32 localBodyIndex, Model& model,
+                     MaterialIndexMap& materialIndices)
 {
 	const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 	if (polygonContours.empty ())
@@ -295,11 +319,8 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 
 	const Vec3 normal = ConvertNormal (transform, component.vect, polygon.ivect < 0);
 	const double normalSign = polygon.ivect < 0 ? -1.0 : 1.0;
-	const GlbGeometry::Point localNormal {
-		normalSign * component.vect.x,
-		normalSign * component.vect.y,
-		normalSign * component.vect.z
-	};
+	const GlbGeometry::Point localNormal {normalSign * component.vect.x, normalSign * component.vect.y,
+	                                      normalSign * component.vect.z};
 	GlbGeometry::Rings localRings;
 	std::vector<API_VertType> vertices;
 	for (const auto& ring : polygonContours) {
@@ -329,7 +350,8 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 		parameters.surfacePoint = {vertex.x, vertex.y, vertex.z};
 		API_UVCoord uv {};
 		if (elementIndex >= 0 && localBodyIndex >= 0 && ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
-			model.textureCoordinates.push_back (ApplyArchicadTextureTransform (uv, model.materials[materialIndex].texture));
+			model.textureCoordinates.push_back (
+			    ApplyArchicadTextureTransform (uv, model.materials[materialIndex].texture));
 		else
 			model.textureCoordinates.push_back ({0.0f, 0.0f});
 	}
@@ -337,8 +359,8 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 		model.materials[materialIndex].indices.push_back (base + index);
 }
 
-void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndices,
-	ExportStatistics& statistics, Int32& skippedPolygonCount, std::string& lastPolygonError)
+void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndices, ExportStatistics& statistics,
+                  Int32& skippedPolygonCount, std::string& lastPolygonError)
 {
 	API_Component3D component {};
 	component.header.typeID = API_BodyID;
@@ -362,7 +384,8 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 			continue;
 		}
 		try {
-			CollectPolygon (polygon, polygonIndex, bodyVertexCount, transform, elementIndex, localBodyIndex, model, materialIndices);
+			CollectPolygon (polygon, polygonIndex, bodyVertexCount, transform, elementIndex, localBodyIndex, model,
+			                materialIndices);
 		} catch (const GlbGeometry::DegeneratePolygon&) {
 			// GDL objects commonly contain intentional zero-area helper polygons.
 			// They have no visible surface and can be omitted without data loss.
@@ -381,8 +404,8 @@ std::size_t CountTriangles (const Model& model)
 	return count;
 }
 
-void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model,
-	MaterialIndexMap& materialIndices, ExportStatistics& statistics)
+void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, MaterialIndexMap& materialIndices,
+                     ExportStatistics& statistics)
 {
 	const API_Elem_Head& element = visibleBodyGroup.parent;
 	const char* typeName = GetElementTypeName (element.type);
@@ -399,15 +422,16 @@ void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model,
 		if (skippedPolygonCount > 0) {
 			++statistics.failedElementCount;
 			statistics.elementReport += GS::UniString::Printf (
-				"\nERROR – %s, GUID: %s: %d invalid polygons skipped (last error: %s). The rest of the element was exported.",
-				typeName, elementGuid.ToCStr ().Get (), skippedPolygonCount, lastPolygonError.c_str ());
+			    "\nERROR – %s, GUID: %s: %d invalid polygons skipped (last error: %s). The rest of the element was "
+			    "exported.",
+			    typeName, elementGuid.ToCStr ().Get (), skippedPolygonCount, lastPolygonError.c_str ());
 		}
 	} catch (const std::exception& error) {
 		checkpoint.RollBack (model, materialIndices);
 		++statistics.failedElementCount;
-		statistics.elementReport += GS::UniString::Printf (
-			"\nERROR – %s, GUID: %s: %s. The element was skipped and export continued.",
-			typeName, elementGuid.ToCStr ().Get (), error.what ());
+		statistics.elementReport +=
+		    GS::UniString::Printf ("\nERROR – %s, GUID: %s: %s. The element was skipped and export continued.",
+		                           typeName, elementGuid.ToCStr ().Get (), error.what ());
 	}
 }
 
@@ -457,20 +481,24 @@ void ExportActive3DWindowToGlb ()
 
 	Model model;
 	ExportStatistics statistics;
-    try {
+	try {
 		Scoped3DWindowSight sight;
 		if (sight.GetError () != NoError) {
-			ACAPI_WriteReport (GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.", sight.GetError ()), true);
+			ACAPI_WriteReport (
+			    GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.",
+			                           sight.GetError ()),
+			    true);
 			return;
 		}
-        if (!CollectMesh (model, statistics)) {
-            ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
-            return;
-        }
-    } catch (const std::exception& error) {
-        ACAPI_WriteReport (GS::UniString::Printf ("Geometry processing failed: %s. No GLB was created.", error.what ()), true);
-        return;
-    }
+		if (!CollectMesh (model, statistics)) {
+			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
+			return;
+		}
+	} catch (const std::exception& error) {
+		ACAPI_WriteReport (GS::UniString::Printf ("Geometry processing failed: %s. No GLB was created.", error.what ()),
+		                   true);
+		return;
+	}
 
 	if (!WriteGlb (location, model)) {
 		ACAPI_WriteReport ("Writing the GLB file failed.", true);
@@ -478,7 +506,16 @@ void ExportActive3DWindowToGlb ()
 	}
 	const Int32 problemCount = statistics.emptyElementCount + statistics.failedElementCount;
 	if (problemCount == 0)
-		ACAPI_WriteReport (GS::UniString::Printf ("GLB export complete.\nFailed or skipped elements: 0\nInvisible Archicad polygons omitted: %d", statistics.invisiblePolygonCount), true);
+		ACAPI_WriteReport (
+		    GS::UniString::Printf (
+		        "GLB export complete.\nFailed or skipped elements: 0\nInvisible Archicad polygons omitted: %d",
+		        statistics.invisiblePolygonCount),
+		    true);
 	else
-		ACAPI_WriteReport (GS::UniString::Printf ("GLB export complete.\nFailed or skipped elements: %d\nInvisible Archicad polygons omitted: %d", problemCount, statistics.invisiblePolygonCount) + statistics.elementReport, true);
+		ACAPI_WriteReport (
+		    GS::UniString::Printf (
+		        "GLB export complete.\nFailed or skipped elements: %d\nInvisible Archicad polygons omitted: %d",
+		        problemCount, statistics.invisiblePolygonCount) +
+		        statistics.elementReport,
+		    true);
 }

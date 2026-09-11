@@ -23,14 +23,15 @@ constexpr int ArrayBuffer = 34962;
 constexpr int ElementArrayBuffer = 34963;
 constexpr int Repeat = 10497;
 constexpr int MirroredRepeat = 33648;
-}
+} // namespace Constant
 
 struct PackedGeometry {
 	std::vector<Vec3> positions;
 	std::vector<Vec3> normals;
 	std::vector<Vec2> textureCoordinates;
 	std::vector<std::uint32_t> indices;
-	Vec3 minimum {std::numeric_limits<float>::max (), std::numeric_limits<float>::max (), std::numeric_limits<float>::max ()};
+	Vec3 minimum {std::numeric_limits<float>::max (), std::numeric_limits<float>::max (),
+	              std::numeric_limits<float>::max ()};
 	Vec3 maximum {-minimum.x, -minimum.y, -minimum.z};
 };
 
@@ -87,16 +88,31 @@ std::string EscapeJsonString (const std::string& value)
 	std::ostringstream escaped;
 	for (const unsigned char character : value) {
 		switch (character) {
-			case '\"': escaped << "\\\""; break;
-			case '\\': escaped << "\\\\"; break;
-			case '\b': escaped << "\\b"; break;
-			case '\f': escaped << "\\f"; break;
-			case '\n': escaped << "\\n"; break;
-			case '\r': escaped << "\\r"; break;
-			case '\t': escaped << "\\t"; break;
+			case '\"':
+				escaped << "\\\"";
+				break;
+			case '\\':
+				escaped << "\\\\";
+				break;
+			case '\b':
+				escaped << "\\b";
+				break;
+			case '\f':
+				escaped << "\\f";
+				break;
+			case '\n':
+				escaped << "\\n";
+				break;
+			case '\r':
+				escaped << "\\r";
+				break;
+			case '\t':
+				escaped << "\\t";
+				break;
 			default:
 				if (character < 0x20)
-					escaped << "\\u" << std::hex << std::setw (4) << std::setfill ('0') << static_cast<int> (character) << std::dec;
+					escaped << "\\u" << std::hex << std::setw (4) << std::setfill ('0') << static_cast<int> (character)
+					        << std::dec;
 				else
 					escaped << static_cast<char> (character);
 		}
@@ -106,8 +122,7 @@ std::string EscapeJsonString (const std::string& value)
 
 class LayoutBuilder {
 public:
-	template<class Item>
-	std::size_t AddTypedBufferView (const std::vector<Item>& values, int target)
+	template <class Item> std::size_t AddTypedBufferView (const std::vector<Item>& values, int target)
 	{
 		return AddBufferView (values.data (), values.size () * sizeof (Item), target);
 	}
@@ -118,7 +133,7 @@ public:
 	}
 
 	std::size_t AddAccessor (std::size_t bufferView, int componentType, std::size_t count, const char* type,
-		std::optional<Vec3> minimum = std::nullopt, std::optional<Vec3> maximum = std::nullopt)
+	                         std::optional<Vec3> minimum = std::nullopt, std::optional<Vec3> maximum = std::nullopt)
 	{
 		accessors.push_back ({bufferView, componentType, count, type, minimum, maximum});
 		return accessors.size () - 1;
@@ -191,14 +206,16 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	for (const PackedGeometry& packed : packedGeometry) {
 		const std::size_t positionView = layout.AddTypedBufferView (packed.positions, Constant::ArrayBuffer);
 		const std::size_t normalView = layout.AddTypedBufferView (packed.normals, Constant::ArrayBuffer);
-		const std::size_t textureCoordinateView = layout.AddTypedBufferView (packed.textureCoordinates, Constant::ArrayBuffer);
+		const std::size_t textureCoordinateView =
+		    layout.AddTypedBufferView (packed.textureCoordinates, Constant::ArrayBuffer);
 		const std::size_t indexView = layout.AddTypedBufferView (packed.indices, Constant::ElementArrayBuffer);
-		primitiveReferences.push_back ({
-			layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3", packed.minimum, packed.maximum),
-			layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
-			layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (), "VEC2"),
-			layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")
-		});
+		primitiveReferences.push_back (
+		    {layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
+		                         packed.minimum, packed.maximum),
+		     layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
+		     layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
+		                         "VEC2"),
+		     layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")});
 	}
 
 	std::vector<EmbeddedImage> embeddedImages;
@@ -208,11 +225,12 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {
 		if (model.materials[i].imageData.empty ())
 			continue;
-		auto existingImage = std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
-			const Material& existingMaterial = model.materials[image.materialIndex];
-			return existingMaterial.imageMimeType == model.materials[i].imageMimeType &&
-				existingMaterial.imageData == model.materials[i].imageData;
-		});
+		auto existingImage =
+		    std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
+			    const Material& existingMaterial = model.materials[image.materialIndex];
+			    return existingMaterial.imageMimeType == model.materials[i].imageMimeType &&
+			           existingMaterial.imageData == model.materials[i].imageData;
+		    });
 		if (existingImage == embeddedImages.end ()) {
 			const int imageIndex = static_cast<int> (embeddedImages.size ());
 			embeddedImages.push_back ({i, layout.AddImageBufferView (model.materials[i].imageData)});
@@ -226,38 +244,43 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		layout.binary.push_back (0);
 
 	std::ostringstream json;
-	json << std::fixed << std::setprecision (6)
-		<< "{\"asset\":{\"version\":\"2.0\",\"generator\":\"" << EscapeJsonString (generator) << "\"},"
-		<< "\"scene\":0,\"scenes\":[{\"nodes\":[";
+	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
+	     << EscapeJsonString (generator) << "\"},"
+	     << "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {
-		if (i > 0) json << ',';
+		if (i > 0)
+			json << ',';
 		json << i;
 	}
 	json << "]}],\"nodes\":[";
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {
-		if (i > 0) json << ',';
+		if (i > 0)
+			json << ',';
 		json << "{\"mesh\":" << i << ",\"name\":\"" << EscapeJsonString (model.materials[i].name) << "\"}";
 	}
 	json << "],\"meshes\":[";
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {
-		if (i > 0) json << ',';
+		if (i > 0)
+			json << ',';
 		const PrimitiveReferences& references = primitiveReferences[i];
 		json << "{\"name\":\"" << EscapeJsonString (model.materials[i].name)
-			<< "\",\"primitives\":[{\"attributes\":{\"POSITION\":" << references.positionAccessor
-			<< ",\"NORMAL\":" << references.normalAccessor << ",\"TEXCOORD_0\":" << references.textureCoordinateAccessor
-			<< "},\"indices\":" << references.indexAccessor << ",\"material\":" << i << "}]}";
+		     << "\",\"primitives\":[{\"attributes\":{\"POSITION\":" << references.positionAccessor
+		     << ",\"NORMAL\":" << references.normalAccessor
+		     << ",\"TEXCOORD_0\":" << references.textureCoordinateAccessor
+		     << "},\"indices\":" << references.indexAccessor << ",\"material\":" << i << "}]}";
 	}
 	json << "],\"materials\":[";
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {
-		if (i > 0) json << ',';
+		if (i > 0)
+			json << ',';
 		const Material& material = model.materials[i];
 		const bool hasBaseColorTexture = materialTextureIndices[i] >= 0;
 		const double red = hasBaseColorTexture ? 1.0 : material.red;
 		const double green = hasBaseColorTexture ? 1.0 : material.green;
 		const double blue = hasBaseColorTexture ? 1.0 : material.blue;
-		json << "{\"name\":\"" << EscapeJsonString (material.name) << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":["
-			<< red << ',' << green << ',' << blue << ',' << material.alpha
-			<< "],\"metallicFactor\":0,\"roughnessFactor\":1";
+		json << "{\"name\":\"" << EscapeJsonString (material.name)
+		     << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[" << red << ',' << green << ',' << blue << ','
+		     << material.alpha << "],\"metallicFactor\":0,\"roughnessFactor\":1";
 		if (hasBaseColorTexture)
 			json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i] << '}';
 		json << '}';
@@ -274,7 +297,8 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		for (std::size_t i = 0; i < model.materials.size (); ++i) {
 			if (materialTextureIndices[i] < 0)
 				continue;
-			if (textureIndex > 0) json << ',';
+			if (textureIndex > 0)
+				json << ',';
 			json << "{\"source\":" << materialImageIndices[i] << ",\"sampler\":" << textureIndex << '}';
 			++textureIndex;
 		}
@@ -283,22 +307,26 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		for (std::size_t i = 0; i < model.materials.size (); ++i) {
 			if (materialTextureIndices[i] < 0)
 				continue;
-			if (textureIndex++ > 0) json << ',';
+			if (textureIndex++ > 0)
+				json << ',';
 			json << "{\"wrapS\":" << (model.materials[i].texture.mirrorX ? Constant::MirroredRepeat : Constant::Repeat)
-				<< ",\"wrapT\":" << (model.materials[i].texture.mirrorY ? Constant::MirroredRepeat : Constant::Repeat) << '}';
+			     << ",\"wrapT\":" << (model.materials[i].texture.mirrorY ? Constant::MirroredRepeat : Constant::Repeat)
+			     << '}';
 		}
 		json << "],\"images\":[";
 		for (std::size_t i = 0; i < embeddedImages.size (); ++i) {
-			if (i > 0) json << ',';
+			if (i > 0)
+				json << ',';
 			const EmbeddedImage& image = embeddedImages[i];
 			json << "{\"bufferView\":" << image.bufferView << ",\"mimeType\":\""
-				<< EscapeJsonString (model.materials[image.materialIndex].imageMimeType) << "\"}";
+			     << EscapeJsonString (model.materials[image.materialIndex].imageMimeType) << "\"}";
 		}
 		json << ']';
 	}
 	json << ",\"buffers\":[{\"byteLength\":" << layout.binary.size () << "}],\"bufferViews\":[";
 	for (std::size_t i = 0; i < layout.bufferViews.size (); ++i) {
-		if (i > 0) json << ',';
+		if (i > 0)
+			json << ',';
 		const BufferView& view = layout.bufferViews[i];
 		json << "{\"buffer\":0,\"byteOffset\":" << view.offset << ",\"byteLength\":" << view.length;
 		if (view.target.has_value ())
@@ -307,14 +335,17 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	}
 	json << "],\"accessors\":[";
 	for (std::size_t i = 0; i < layout.accessors.size (); ++i) {
-		if (i > 0) json << ',';
+		if (i > 0)
+			json << ',';
 		const Accessor& accessor = layout.accessors[i];
 		json << "{\"bufferView\":" << accessor.bufferView << ",\"componentType\":" << accessor.componentType
-			<< ",\"count\":" << accessor.count << ",\"type\":\"" << accessor.type << '\"';
+		     << ",\"count\":" << accessor.count << ",\"type\":\"" << accessor.type << '\"';
 		if (accessor.minimum.has_value ())
-			json << ",\"min\":[" << accessor.minimum->x << ',' << accessor.minimum->y << ',' << accessor.minimum->z << ']';
+			json << ",\"min\":[" << accessor.minimum->x << ',' << accessor.minimum->y << ',' << accessor.minimum->z
+			     << ']';
 		if (accessor.maximum.has_value ())
-			json << ",\"max\":[" << accessor.maximum->x << ',' << accessor.maximum->y << ',' << accessor.maximum->z << ']';
+			json << ",\"max\":[" << accessor.maximum->x << ',' << accessor.maximum->y << ',' << accessor.maximum->z
+			     << ']';
 		json << '}';
 	}
 	json << "]}";

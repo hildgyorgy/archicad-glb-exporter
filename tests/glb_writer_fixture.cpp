@@ -12,15 +12,10 @@ int main (int argumentCount, char** arguments)
 	}
 
 	DropView::Glb::Model model;
-	model.positions = {
-		{0.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f}, {0.0f, 3.0f, 0.0f},
-		{0.0f, 0.0f, 1.0f}, {2.0f, 0.0f, 1.0f}, {0.0f, 3.0f, 1.0f}
-	};
+	model.positions = {{0.0f, 0.0f, 0.0f}, {2.0f, 0.0f, 0.0f}, {0.0f, 3.0f, 0.0f},
+	                   {0.0f, 0.0f, 1.0f}, {2.0f, 0.0f, 1.0f}, {0.0f, 3.0f, 1.0f}};
 	model.normals.assign (6, {0.0f, 0.0f, 1.0f});
-	model.textureCoordinates = {
-		{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f},
-		{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}
-	};
+	model.textureCoordinates = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
 
 	const std::vector<char> sharedImage {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n', 't', 'e', 's', 't'};
 	DropView::Glb::Material masked;
@@ -44,7 +39,7 @@ int main (int argumentCount, char** arguments)
 	std::ofstream output (arguments[1], std::ios::binary | std::ios::trunc);
 	if (!output)
 		throw std::runtime_error ("Cannot create GLB fixture");
-	output.write (glb.data (), static_cast<std::streamsize> (glb.size ())); 
+	output.write (glb.data (), static_cast<std::streamsize> (glb.size ()));
 	if (!output)
 		throw std::runtime_error ("Cannot write GLB fixture");
 	return 0;
