@@ -2,7 +2,7 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-release_version="${RELEASE_VERSION:-0.3.0-alpha}"
+release_version="${RELEASE_VERSION:-0.4.0-beta}"
 temporary_root="${TMPDIR%/}/dropview-glb-exporter-release"
 stage_dir="${temporary_root}/stage/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}"
 output_dmg="${project_root}/dist/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}.dmg"

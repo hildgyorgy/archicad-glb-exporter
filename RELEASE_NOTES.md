@@ -1,6 +1,6 @@
-# Drop & View GLB Exporter v0.3.0-alpha
+# Drop & View GLB Exporter v0.4.0-beta
 
-This experimental release makes the active Archicad 3D window the complete source of the exported GLB and adds repeatable multi-platform release automation.
+This beta keeps the established export behaviour while making the exporter easier to verify and safer to extend. The active Archicad 3D window remains the complete source of exported geometry and appearance.
 
 ## Requirements
 
@@ -18,8 +18,11 @@ This experimental release makes the active Archicad 3D window the complete sourc
 - Continues past invalid polygons where possible and reports skipped geometry.
 - Uses the embedded texture as the glTF base colour without applying Archicad's surface colour a second time.
 - Builds Archicad 28 and 29 packages for macOS and Windows from one GitHub Actions release workflow.
+- Separates GLB serialization from Archicad model collection and allocates glTF buffer indices automatically.
+- Adds portable GLB and triangulation regression tests for Debug and Release builds on macOS, Windows and Linux.
+- Applies stricter compiler warnings while keeping required Archicad SDK exceptions narrowly scoped.
 
-## Alpha notice
+## Beta notice
 
 This build is intended for evaluation and feedback. Compare every exported model with the source Archicad 3D view before professional or client use. Please report reproducible problems through GitHub Issues without uploading confidential project material publicly.
 

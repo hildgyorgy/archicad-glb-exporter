@@ -4,7 +4,7 @@ An experimental native Archicad add-on that exports the complete current content
 
 ## Current release
 
-The latest published package is an experimental alpha build for:
+The latest published package is a beta build for:
 
 - Archicad 28 and 29
 - Apple Silicon Macs (`arm64`) with macOS 26 or later
@@ -59,7 +59,7 @@ cmake --build build-ac28 --config Release
 
 The CMake configuration detects the DevKit version and accepts Archicad 28 and 29. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes it in the DMG filename.
 
-## Alpha feedback
+## Beta feedback
 
 This release is intended for testing on real Archicad projects. Before relying on an exported model, compare it with the active Archicad 3D view. Please report reproducible problems through [GitHub Issues](https://github.com/hildgyorgy/archicad-glb-exporter/issues) and include:
 

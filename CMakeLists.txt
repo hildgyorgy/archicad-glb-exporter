@@ -68,7 +68,7 @@ endif ()
 set (AC_API_DEVKIT_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "API DevKit directory.")
 set (AC_ADDON_NAME "DropViewGLBExporter" CACHE STRING "Add-On name.")
 set (AC_ADDON_LANGUAGE "INT" CACHE STRING "Add-On language code.")
-set (DROPVIEW_VERSION "0.3.0-alpha" CACHE STRING "Drop & View GLB Exporter version.")
+set (DROPVIEW_VERSION "0.4.0-beta" CACHE STRING "Drop & View GLB Exporter version.")
 
 message (STATUS "APIDevKit directory: ${AC_API_DEVKIT_DIR}")
 set (ACAPINC_FILE_LOCATION ${AC_API_DEVKIT_DIR}/Support/Inc/ACAPinc.h)

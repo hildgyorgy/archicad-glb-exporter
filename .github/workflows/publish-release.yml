@@ -6,7 +6,7 @@ on:
       version:
         description: Release version without the leading v
         required: true
-        default: 0.3.0-alpha
+        default: 0.4.0-beta
         type: string
       prerelease:
         description: Mark the GitHub release as a pre-release
