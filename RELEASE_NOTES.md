@@ -1,6 +1,6 @@
-# Drop & View GLB Exporter v0.4.0-beta
+# Drop & View GLB Exporter v0.5.0-beta
 
-This beta keeps the established export behaviour while making the exporter easier to verify and safer to extend. The active Archicad 3D window remains the complete source of exported geometry and appearance.
+This beta improves material compatibility and the appearance of curved Archicad geometry. The active Archicad 3D window remains the complete source of exported geometry and appearance.
 
 ## Requirements
 
@@ -11,6 +11,8 @@ This beta keeps the established export behaviour while making the exporter easie
 
 - Exports every visible body in the active Archicad 3D window without requiring an Archicad selection.
 - Preserves visible 3D cuts, effective surface colours, transparency, embedded textures, texture size and rotation.
+- Converts TIFF surface textures to embedded PNG data during export, alongside direct PNG and JPEG support.
+- Smooths shading across edges marked as curved by Archicad while preserving hard edges and the original polygon count.
 - Preserves the result of active Graphical Overrides.
 - Supports major architectural, structural, library-object and site element families.
 - Includes visible doors, windows and skylights directly from the active 3D model.
@@ -20,6 +22,7 @@ This beta keeps the established export behaviour while making the exporter easie
 - Builds Archicad 28 and 29 packages for macOS and Windows from one GitHub Actions release workflow.
 - Separates GLB serialization from Archicad model collection and allocates glTF buffer indices automatically.
 - Adds portable GLB and triangulation regression tests for Debug and Release builds on macOS, Windows and Linux.
+- Adds portable regression tests for curved-surface normal generation and hard-edge preservation.
 - Applies stricter compiler warnings while keeping required Archicad SDK exceptions narrowly scoped.
 
 ## Beta notice

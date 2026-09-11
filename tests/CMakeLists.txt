@@ -15,6 +15,12 @@ SetPortableTestCompilerOptions (DropViewTriangulationTests)
 
 add_test (NAME triangulation COMMAND DropViewTriangulationTests)
 
+add_executable (DropViewSurfaceNormalTests surface_normals.cpp)
+target_include_directories (DropViewSurfaceNormalTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Src")
+SetPortableTestCompilerOptions (DropViewSurfaceNormalTests)
+
+add_test (NAME surface_normals COMMAND DropViewSurfaceNormalTests)
+
 add_library (DropViewGlbWriter STATIC ../Src/GlbWriter.cpp)
 target_include_directories (DropViewGlbWriter PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../Src")
 SetPortableTestCompilerOptions (DropViewGlbWriter)

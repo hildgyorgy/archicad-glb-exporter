@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = (Resolve-Path "$PSScriptRoot/..").Path
-$ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { "0.4.0-beta" }
+$ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { "0.5.0-beta" }
 $ArchiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$ReleaseVersion"
 $AddonName = "DropViewGLBExporter"
 $TemporaryRoot = Join-Path $env:TEMP "dropview-glb-exporter-release"

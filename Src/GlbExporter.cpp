@@ -6,10 +6,12 @@
 #include "GlbExporter.hpp"
 #include "GlbWriter.hpp"
 #include "PolygonTriangulation.hpp"
+#include "SurfaceNormals.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <map>
 #include <memory>
@@ -25,6 +27,7 @@ using DropView::Glb::Material;
 using DropView::Glb::Model;
 using DropView::Glb::Vec2;
 using DropView::Glb::Vec3;
+using GlbGeometry::CornerNormals;
 
 struct ExportStatistics {
 	Int32 emptyElementCount = 0;
@@ -134,6 +137,53 @@ Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const DropView::Glb::
 	return {static_cast<float> (u), static_cast<float> (1.0 - v)};
 }
 
+bool IsTiffImage (const std::vector<char>& imageData)
+{
+	if (imageData.size () < 4)
+		return false;
+
+	const auto* bytes = reinterpret_cast<const unsigned char*> (imageData.data ());
+	const bool littleEndianTiff =
+	    bytes[0] == 'I' && bytes[1] == 'I' && ((bytes[2] == 42 && bytes[3] == 0) || (bytes[2] == 43 && bytes[3] == 0));
+	const bool bigEndianTiff =
+	    bytes[0] == 'M' && bytes[1] == 'M' && ((bytes[2] == 0 && bytes[3] == 42) || (bytes[2] == 0 && bytes[3] == 43));
+	return littleEndianTiff || bigEndianTiff;
+}
+
+bool ConvertTiffToPng (const std::vector<char>& tiffData, std::vector<char>& pngData)
+{
+	GSHandle inputHandle = BMhAll (static_cast<GSSize> (tiffData.size ()));
+	if (inputHandle == nullptr)
+		return false;
+
+	std::memcpy (*inputHandle, tiffData.data (), tiffData.size ());
+
+	API_MimePicture conversion {};
+	conversion.mimeIn = "image/tiff";
+	conversion.inputHdl = inputHandle;
+	conversion.mimeOut = "image/png";
+	conversion.inContainsMime = false;
+	conversion.outDepth = APIColorDepth_FromSourceImage;
+
+	const GSErrCode error = ACAPI_Conversion_ConvertMimePicture (&conversion);
+	BMhKill (&inputHandle);
+	if (error != NoError || conversion.outputHdl == nullptr) {
+		BMhKill (&conversion.outputHdl);
+		return false;
+	}
+
+	const GSSize outputSize = BMhGetSize (conversion.outputHdl);
+	if (outputSize <= 0) {
+		BMhKill (&conversion.outputHdl);
+		return false;
+	}
+
+	const auto* outputBegin = reinterpret_cast<const char*> (*conversion.outputHdl);
+	pngData.assign (outputBegin, outputBegin + outputSize);
+	BMhKill (&conversion.outputHdl);
+	return true;
+}
+
 void LoadTextureImage (const IO::Location* location, Material& material)
 {
 	if (location == nullptr)
@@ -153,14 +203,25 @@ void LoadTextureImage (const IO::Location* location, Material& material)
 		material.imageMimeType = "image/png";
 	else if (bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff)
 		material.imageMimeType = "image/jpeg";
-	else
+	else if (IsTiffImage (material.imageData)) {
+		std::vector<char> pngData;
+		if (ConvertTiffToPng (material.imageData, pngData)) {
+			material.imageData = std::move (pngData);
+			material.imageMimeType = "image/png";
+		} else {
+			material.imageData.clear ();
+		}
+	} else {
 		material.imageData.clear ();
+	}
 
 	// An alpha channel in the source image is not enough to make the Archicad
 	// surface transparent. Some opaque textures contain luminance-like alpha
 	// data. Use it as a cutout only when Archicad explicitly enables both alpha
 	// use and transparency-pattern handling for the texture.
-	const bool pngHasAlpha = material.imageMimeType == "image/png" && size > 25 && (bytes[25] == 4 || bytes[25] == 6);
+	bytes = reinterpret_cast<const unsigned char*> (material.imageData.data ());
+	const bool pngHasAlpha =
+	    material.imageMimeType == "image/png" && material.imageData.size () > 25 && (bytes[25] == 4 || bytes[25] == 6);
 	material.alphaMask = pngHasAlpha && material.texture.useAlpha && material.texture.transparencyPattern;
 }
 
@@ -213,6 +274,62 @@ std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon,
 	if (rings.back ().empty ())
 		rings.pop_back ();
 	return rings;
+}
+
+CornerNormals CalculateBodyCornerNormals (Int32 bodyVertexCount, Int32 polygonCount, Int32 edgeCount)
+{
+	std::vector<GlbGeometry::Point> vertices (static_cast<std::size_t> (bodyVertexCount) + 1);
+	API_Component3D component {};
+	for (Int32 vertexIndex = 1; vertexIndex <= bodyVertexCount; ++vertexIndex) {
+		component.header.typeID = API_VertID;
+		component.header.index = vertexIndex;
+		if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
+			return {};
+		vertices[vertexIndex] = {component.vert.x, component.vert.y, component.vert.z};
+	}
+
+	std::vector<GlbGeometry::SmoothingFace> faces (static_cast<std::size_t> (polygonCount));
+	for (Int32 polygonIndex = 1; polygonIndex <= polygonCount; ++polygonIndex) {
+		component.header.typeID = API_PgonID;
+		component.header.index = polygonIndex;
+		if (ACAPI_ModelAccess_GetComponent (&component) != NoError || component.pgon.fpedg > component.pgon.lpedg ||
+		    (component.pgon.status & APIPgon_Invis) != 0)
+			continue;
+		const API_PgonType polygon = component.pgon;
+		try {
+			const auto contours = GetPolygonContours (polygon, bodyVertexCount);
+			component.header.typeID = API_VectID;
+			component.header.index = std::abs (polygon.ivect);
+			if (contours.empty () || ACAPI_ModelAccess_GetComponent (&component) != NoError)
+				continue;
+			GlbGeometry::SmoothingFace& face = faces[static_cast<std::size_t> (polygonIndex - 1)];
+			face.valid = true;
+			face.normal = {component.vect.x, component.vect.y, component.vect.z};
+			if (polygon.ivect < 0)
+				for (double& coordinate : face.normal)
+					coordinate = -coordinate;
+			for (const auto& contour : contours)
+				face.contours.emplace_back (contour.begin (), contour.end ());
+		} catch (const std::exception&) {
+			// The normal calculation is optional. CollectPolygon reports or skips
+			// invalid source polygons using the established export path.
+		}
+	}
+
+	std::vector<GlbGeometry::SmoothingEdge> edges;
+	for (Int32 edgeIndex = 1; edgeIndex <= edgeCount; ++edgeIndex) {
+		component.header.typeID = API_EdgeID;
+		component.header.index = edgeIndex;
+		if (ACAPI_ModelAccess_GetComponent (&component) != NoError || (component.edge.status & APIEdge_Curved) == 0 ||
+		    component.edge.pgon1 <= 0 || component.edge.pgon1 > polygonCount || component.edge.pgon2 <= 0 ||
+		    component.edge.pgon2 > polygonCount)
+			continue;
+		edges.push_back ({static_cast<std::uint32_t> (component.edge.vert1),
+		                  static_cast<std::uint32_t> (component.edge.vert2),
+		                  static_cast<std::size_t> (component.edge.pgon1 - 1),
+		                  static_cast<std::size_t> (component.edge.pgon2 - 1), true});
+	}
+	return GlbGeometry::CalculateCornerNormals (vertices, faces, edges);
 }
 
 using MaterialIndexMap = std::map<Int32, std::size_t>;
@@ -316,7 +433,7 @@ std::size_t GetOrCreateMaterial (Int32 sourceIndex, Model& model, MaterialIndexM
 
 void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 bodyVertexCount,
                      const API_Tranmat& transform, Int32 elementIndex, Int32 localBodyIndex, Model& model,
-                     MaterialIndexMap& materialIndices)
+                     MaterialIndexMap& materialIndices, const CornerNormals& cornerNormals)
 {
 	const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 	if (polygonContours.empty ())
@@ -351,20 +468,37 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 	if (model.positions.size () > std::numeric_limits<std::uint32_t>::max ())
 		throw std::length_error ("Vertex count exceeds the GLB 32-bit index limit");
 	const std::uint32_t base = static_cast<std::uint32_t> (model.positions.size ());
-	for (const API_VertType& vertex : vertices) {
-		model.positions.push_back (ConvertPosition (transform, vertex));
-		model.normals.push_back (normal);
-		API_TexCoordPars parameters {};
-		parameters.elemIdx = elementIndex;
-		parameters.bodyIdx = localBodyIndex;
-		parameters.pgonIndex = polygonIndex;
-		parameters.surfacePoint = {vertex.x, vertex.y, vertex.z};
-		API_UVCoord uv {};
-		if (elementIndex >= 0 && localBodyIndex >= 0 && ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
-			model.textureCoordinates.push_back (
-			    ApplyArchicadTextureTransform (uv, model.materials[materialIndex].texture));
-		else
-			model.textureCoordinates.push_back ({0.0f, 0.0f});
+	std::size_t flattenedVertexIndex = 0;
+	for (const auto& ring : polygonContours) {
+		for (Int32 vertexIndex : ring) {
+			const API_VertType& vertex = vertices[flattenedVertexIndex++];
+			model.positions.push_back (ConvertPosition (transform, vertex));
+			Vec3 cornerNormal = normal;
+			if (polygonIndex > 0 && static_cast<std::size_t> (polygonIndex) <= cornerNormals.size ()) {
+				const auto found = cornerNormals[static_cast<std::size_t> (polygonIndex - 1)].find (
+				    static_cast<std::uint32_t> (vertexIndex));
+				if (found != cornerNormals[static_cast<std::size_t> (polygonIndex - 1)].end ()) {
+					API_VectType localCornerNormal {};
+					localCornerNormal.x = found->second[0];
+					localCornerNormal.y = found->second[1];
+					localCornerNormal.z = found->second[2];
+					cornerNormal = ConvertNormal (transform, localCornerNormal, false);
+				}
+			}
+			model.normals.push_back (cornerNormal);
+			API_TexCoordPars parameters {};
+			parameters.elemIdx = elementIndex;
+			parameters.bodyIdx = localBodyIndex;
+			parameters.pgonIndex = polygonIndex;
+			parameters.surfacePoint = {vertex.x, vertex.y, vertex.z};
+			API_UVCoord uv {};
+			if (elementIndex >= 0 && localBodyIndex >= 0 &&
+			    ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
+				model.textureCoordinates.push_back (
+				    ApplyArchicadTextureTransform (uv, model.materials[materialIndex].texture));
+			else
+				model.textureCoordinates.push_back ({0.0f, 0.0f});
+		}
 	}
 	for (std::uint32_t index : triangles)
 		model.materials[materialIndex].indices.push_back (base + index);
@@ -384,6 +518,9 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 	const Int32 localBodyIndex = component.body.head.bodyIndex - 1;
 	const Int32 polygonCount = component.body.nPgon;
 	const Int32 bodyVertexCount = component.body.nVert;
+	CornerNormals cornerNormals;
+	if ((component.body.status & APIBody_Curved) != 0)
+		cornerNormals = CalculateBodyCornerNormals (bodyVertexCount, polygonCount, component.body.nEdge);
 	for (Int32 polygonIndex = 1; polygonIndex <= polygonCount; ++polygonIndex) {
 		component.header.typeID = API_PgonID;
 		component.header.index = polygonIndex;
@@ -396,7 +533,7 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 		}
 		try {
 			CollectPolygon (polygon, polygonIndex, bodyVertexCount, transform, elementIndex, localBodyIndex, model,
-			                materialIndices);
+			                materialIndices, cornerNormals);
 		} catch (const GlbGeometry::DegeneratePolygon&) {
 			// GDL objects commonly contain intentional zero-area helper polygons.
 			// They have no visible surface and can be omitted without data loss.

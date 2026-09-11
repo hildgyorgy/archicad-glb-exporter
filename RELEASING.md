@@ -31,8 +31,8 @@ Paste the copied value directly into the `MACOS_CERTIFICATE_BASE64` GitHub Actio
 
 1. Open **Actions > Publish Full Release**.
 2. Choose **Run workflow**.
-3. Enter the version without a leading `v`, for example `0.3.0-alpha`.
-4. Leave **pre-release** enabled for alpha builds.
+3. Enter the version without a leading `v`, for example `0.5.0-beta`.
+4. Leave **pre-release** enabled for alpha and beta builds.
 5. Run the workflow.
 
 The workflow refuses invalid version strings and refuses to overwrite an existing release. A failure in any build, signing, notarization or packaging step prevents publication.

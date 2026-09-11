@@ -17,8 +17,9 @@ Intel Macs and earlier versions of macOS are not currently supported.
 The add-on uses the active Archicad 3D window as the source of truth. It exports every visible 3D body with the geometry and effective surface appearance shown there, including:
 
 - 3D cuts and other geometry visible in the active 3D window;
-- surface colours, transparency and embedded image textures;
+- surface colours, transparency and embedded PNG, JPEG and TIFF image textures;
 - texture size and rotation;
+- smooth shading for Archicad surfaces marked as curved, while preserving hard edges;
 - active Graphical Overrides;
 - surface-based GLB mesh groups for visibility controls in compatible viewers.
 
