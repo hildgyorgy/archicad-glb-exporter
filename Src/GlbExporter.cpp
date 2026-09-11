@@ -57,53 +57,64 @@ private:
 
 const char* GetElementTypeName (const API_ElemType& type)
 {
-	if (type == API_WallID)
-		return "Wall";
-	if (type == API_SlabID)
-		return "Slab";
-	if (type == API_ColumnSegmentID)
-		return "Column segment";
-	if (type == API_BeamSegmentID)
-		return "Beam segment";
-	if (type == API_RoofID)
-		return "Roof";
-	if (type == API_ShellID)
-		return "Shell";
-	if (type == API_RiserID)
-		return "Stair riser";
-	if (type == API_TreadID)
-		return "Stair tread";
-	if (type == API_StairStructureID)
-		return "Stair structure";
-	if (type == API_RailingPostID || type == API_RailingInnerPostID || type == API_RailingRailID ||
-	    type == API_RailingHandrailID || type == API_RailingToprailID || type == API_RailingPanelID ||
-	    type == API_RailingBalusterID || type == API_RailingRailEndID || type == API_RailingHandrailEndID ||
-	    type == API_RailingToprailEndID || type == API_RailingRailConnectionID ||
-	    type == API_RailingHandrailConnectionID || type == API_RailingToprailConnectionID)
-		return "Railing component";
-	if (type == API_ObjectID)
-		return "Object";
-	if (type == API_LampID)
-		return "Lamp";
-	if (type == API_MorphID)
-		return "MORPH";
-	if (type == API_MeshID)
-		return "Mesh/terrain";
-	if (type == API_CurtainWallFrameID)
-		return "Curtain wall frame";
-	if (type == API_CurtainWallPanelID)
-		return "Curtain wall panel";
-	if (type == API_CurtainWallJunctionID)
-		return "Curtain wall junction";
-	if (type == API_CurtainWallAccessoryID)
-		return "Curtain wall accessory";
-	if (type == API_WindowID)
-		return "Window";
-	if (type == API_DoorID)
-		return "Door";
-	if (type == API_SkylightID)
-		return "Skylight";
-	return "3D element";
+	switch (type.typeID) {
+		case API_WallID:
+			return "Wall";
+		case API_SlabID:
+			return "Slab";
+		case API_ColumnSegmentID:
+			return "Column segment";
+		case API_BeamSegmentID:
+			return "Beam segment";
+		case API_RoofID:
+			return "Roof";
+		case API_ShellID:
+			return "Shell";
+		case API_RiserID:
+			return "Stair riser";
+		case API_TreadID:
+			return "Stair tread";
+		case API_StairStructureID:
+			return "Stair structure";
+		case API_RailingPostID:
+		case API_RailingInnerPostID:
+		case API_RailingRailID:
+		case API_RailingHandrailID:
+		case API_RailingToprailID:
+		case API_RailingPanelID:
+		case API_RailingBalusterID:
+		case API_RailingRailEndID:
+		case API_RailingHandrailEndID:
+		case API_RailingToprailEndID:
+		case API_RailingRailConnectionID:
+		case API_RailingHandrailConnectionID:
+		case API_RailingToprailConnectionID:
+			return "Railing component";
+		case API_ObjectID:
+			return "Object";
+		case API_LampID:
+			return "Lamp";
+		case API_MorphID:
+			return "MORPH";
+		case API_MeshID:
+			return "Mesh/terrain";
+		case API_CurtainWallFrameID:
+			return "Curtain wall frame";
+		case API_CurtainWallPanelID:
+			return "Curtain wall panel";
+		case API_CurtainWallJunctionID:
+			return "Curtain wall junction";
+		case API_CurtainWallAccessoryID:
+			return "Curtain wall accessory";
+		case API_WindowID:
+			return "Window";
+		case API_DoorID:
+			return "Door";
+		case API_SkylightID:
+			return "Skylight";
+		default:
+			return "3D element";
+	}
 }
 
 Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const DropView::Glb::TextureParameters& texture)
