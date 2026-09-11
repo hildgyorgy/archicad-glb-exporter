@@ -58,7 +58,16 @@ inline std::vector<std::uint32_t> Triangulate (const Rings& rings, const Point& 
         throw DegeneratePolygon ();
     if (expectedArea < 0)
         throw std::runtime_error ("Hole area exceeds outer contour area");
+#if defined (_MSC_VER)
+#pragma warning(push)
+    // earcut's local Point alias triggers C4459 when this template is instantiated
+    // beside GlbGeometry::Point. Keep the exception scoped to the third-party call.
+#pragma warning(disable : 4459)
+#endif
     auto indices = mapbox::earcut<std::uint32_t> (projected);
+#if defined (_MSC_VER)
+#pragma warning(pop)
+#endif
     if (indices.empty () || indices.size () % 3)
         throw std::runtime_error ("Earcut returned no triangles");
     double actualArea = 0;

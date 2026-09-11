@@ -53,19 +53,19 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* params)
 			ExportActive3DWindowToGlb ();
 		}
 	}
-    return NoError;
+	return NoError;
 }
 
 API_AddonType CheckEnvironment (API_EnvirParams* envir)
 {
-    RSGetIndString (&envir->addOnInfo.name, ADDON_INFO, 1, ACAPI_GetOwnResModule ());
-    RSGetIndString (&envir->addOnInfo.description, ADDON_INFO, 2, ACAPI_GetOwnResModule ());
-    return APIAddon_Normal;
+	RSGetIndString (&envir->addOnInfo.name, ADDON_INFO, 1, ACAPI_GetOwnResModule ());
+	RSGetIndString (&envir->addOnInfo.description, ADDON_INFO, 2, ACAPI_GetOwnResModule ());
+	return APIAddon_Normal;
 }
 
 GSErrCode RegisterInterface ()
 {
-    return ACAPI_MenuItem_RegisterMenu (ADDON_MENU, 0, MenuCode_UserDef, MenuFlag_Default);
+	return ACAPI_MenuItem_RegisterMenu (ADDON_MENU, 0, MenuCode_UserDef, MenuFlag_Default);
 }
 
 GSErrCode Initialize ()
@@ -75,8 +75,8 @@ GSErrCode Initialize ()
 		return error;
 
 	windowEventHandlerId.New ();
-	const GSErrCode notificationError = ACAPI_Notification_RegisterEventHandler (
-		GS::NewOwned<ExportWindowEventHandler> (), *windowEventHandlerId);
+	const GSErrCode notificationError =
+	    ACAPI_Notification_RegisterEventHandler (GS::NewOwned<ExportWindowEventHandler> (), *windowEventHandlerId);
 	if (notificationError != NoError)
 		windowEventHandlerId.Clear ();
 
@@ -90,5 +90,5 @@ GSErrCode FreeData ()
 		ACAPI_Notification_UnregisterEventHandler (*windowEventHandlerId);
 		windowEventHandlerId.Clear ();
 	}
-    return NoError;
+	return NoError;
 }

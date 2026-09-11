@@ -1,6 +1,14 @@
 # Adapted from the Graphisoft API DevKit example build configuration.
 cmake_minimum_required (VERSION 3.16)
 
+option (DROPVIEW_TESTS_ONLY "Configure the portable tests without an Archicad API DevKit." OFF)
+if (DROPVIEW_TESTS_ONLY)
+	project (DropViewGLBExporterTests LANGUAGES CXX)
+	include (CTest)
+	add_subdirectory (tests)
+	return ()
+endif ()
+
 # Find Python 3
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 message(STATUS "Using Python: ${Python3_EXECUTABLE} (version ${Python3_VERSION})")
@@ -11,24 +19,16 @@ function (SetCompilerOptions target)
 	if (WIN32)
 		target_compile_options (${target} PUBLIC /W3 /WX /wd4996 /Zc:wchar_t-)
 	else ()
-		target_compile_options (${target} PUBLIC -Wall -Werror -fvisibility=hidden
+		# Archicad 28/29 SDK headers trigger these diagnostics under current AppleClang.
+		# Keep the exceptions narrow so warnings in our own sources remain build errors.
+		target_compile_options (${target} PUBLIC -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden
 			"$<$<CONFIG:Release>:-O2>"
-			-Wno-multichar
-			-Wno-ctor-dtor-privacy
-			-Wno-invalid-offsetof
-			-Wno-ignored-qualifiers
-			-Wno-reorder
-			-Wno-overloaded-virtual
-			-Wno-unused-parameter
-			-Wno-missing-field-initializers
-			-Wno-unknown-pragmas
-			-Wno-missing-braces
-			-Wno-unused-private-field
-			-Wno-return-std-move
-			-Wno-unused-value
-			-Wno-switch
-			-Wno-deprecated
-			-Wno-shorten-64-to-32)
+			-Wno-deprecated-literal-operator
+			-Wno-deprecated-enum-compare-conditional
+			-Wno-gnu-zero-variadic-macro-arguments
+			-Wno-deprecated-volatile
+			-Wno-reorder-ctor
+			-Wno-nested-anon-types)
 	endif ()
 endfunction ()
 
@@ -97,6 +97,11 @@ endif ()
 add_definitions (-DACExtension)
 
 project (${AC_ADDON_NAME})
+
+include (CTest)
+if (BUILD_TESTING)
+	add_subdirectory (tests)
+endif ()
 
 set (AddOnSourcesFolder ./Src)
 set (AddOnResourcesFolder .)
