@@ -1,10 +1,10 @@
 # Drop & View GLB Exporter for Archicad
 
-An experimental native Archicad add-on that exports the complete current content of the active 3D window to a self-contained GLB file. It is designed for the [Drop & View](https://hildgyorgy.github.io/drop-3d-view/) client-viewing workflow, while producing standard GLB files that can also be opened in other compatible viewers.
+A native Archicad add-on that exports the complete current content of the active 3D window to a self-contained GLB file. It is designed for the [Drop & View](https://hildgyorgy.github.io/drop-3d-view/) client-viewing workflow, while producing standard GLB files that can also be opened in other compatible viewers.
 
 ## Current release
 
-The latest published package is a beta build for:
+The latest production release supports:
 
 - Archicad 28 and 29
 - Apple Silicon Macs (`arm64`) with macOS 26 or later
@@ -65,9 +65,9 @@ cmake --build build-ac28 --config Release
 
 The CMake configuration detects the DevKit version and accepts Archicad 28 and 29. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes it in the DMG filename.
 
-## Beta feedback
+## Support and feedback
 
-This release is intended for testing on real Archicad projects. Before relying on an exported model, compare it with the active Archicad 3D view. Please report reproducible problems through [GitHub Issues](https://github.com/hildgyorgy/archicad-glb-exporter/issues) and include:
+As part of your normal delivery checks, compare exported models with the active Archicad 3D view. Please report reproducible problems through [GitHub Issues](https://github.com/hildgyorgy/archicad-glb-exporter/issues) and include:
 
 - the Archicad build number and operating-system version;
 - the affected element type;
