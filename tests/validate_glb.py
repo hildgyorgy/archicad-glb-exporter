@@ -46,6 +46,7 @@ def main() -> None:
     document = json.loads(data[json_start:json_end].decode("utf-8").rstrip(" \0"))
 
     require(document["asset"]["generator"] == 'Drop & View "writer"\ntest', "generator JSON escaping changed")
+    require(document["scenes"][0]["nodes"] == [0, 1, 2], "scene does not reference every export group exactly once")
 
     binary_length, binary_type = struct.unpack_from("<II", data, json_end)
     require(binary_type == 0x004E4942, "second chunk is not binary")
@@ -72,19 +73,28 @@ def main() -> None:
         required = accessor["count"] * component_sizes[accessor["componentType"]] * component_counts[accessor["type"]]
         require(required <= views[accessor["bufferView"]]["byteLength"], "accessor exceeds its bufferView")
 
-    require(len(document["meshes"]) == 3, "expected three material-group meshes")
-    require(len(accessors) == 12, "expected four accessors per mesh")
+    expected_group_names = ["Layer: Architecture", "Layer: Site", "Layer: Reused material"]
+    require(len(document["nodes"]) == 3, "expected three export-group nodes")
+    require([node["name"] for node in document["nodes"]] == expected_group_names,
+            "export-group node names changed")
+    require(len(document["meshes"]) == 3, "expected three export-group meshes")
+    require([mesh["name"] for mesh in document["meshes"]] == expected_group_names,
+            "export-group mesh names changed")
+    require([len(mesh["primitives"]) for mesh in document["meshes"]] == [2, 1, 1],
+            "materials were not retained as primitives inside groups")
+    require(len(accessors) == 16, "expected four accessors per primitive")
     expected_positions = [
         [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
         [(0.0, 0.0, 1.0), (2.0, 0.0, 1.0), (0.0, 3.0, 1.0)],
         [(-2.0, 1.0, 4.0), (1.0, 1.0, 4.0), (-2.0, 5.0, 4.0)],
+        [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
     ]
-    for mesh_index, mesh in enumerate(document["meshes"]):
-        primitive = mesh["primitives"][0]
+    primitives = [primitive for mesh in document["meshes"] for primitive in mesh["primitives"]]
+    for primitive_index, primitive in enumerate(primitives):
         referenced = list(primitive["attributes"].values()) + [primitive["indices"]]
         require(all(0 <= index < len(accessors) for index in referenced), "primitive references an invalid accessor")
-        require(primitive["material"] == mesh_index, "primitive references the wrong material")
-        require(read_accessor(document, binary, primitive["attributes"]["POSITION"]) == expected_positions[mesh_index],
+        require(primitive["material"] == [0, 1, 2, 0][primitive_index], "primitive references the wrong material")
+        require(read_accessor(document, binary, primitive["attributes"]["POSITION"]) == expected_positions[primitive_index],
                 "position data changed")
         require(read_accessor(document, binary, primitive["indices"]) == [(0,), (1,), (2,)], "index data changed")
 

@@ -1,5 +1,13 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Woverloaded-virtual"
+#endif
+#include "DGModule.hpp"
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include "DGFileDialog.hpp"
 #include "File.hpp"
 #include "FileTypeManager.hpp"
@@ -25,9 +33,67 @@ namespace {
 
 using DropView::Glb::Material;
 using DropView::Glb::Model;
+using DropView::Glb::Primitive;
 using DropView::Glb::Vec2;
 using DropView::Glb::Vec3;
 using GlbGeometry::CornerNormals;
+
+enum class GroupingMode { Surface, Layer, ElementType };
+
+class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver {
+public:
+	ExportOptionsDialog ()
+	    : DG::ModalDialog (DG::NativePoint (), 340, 118, GS::Guid ()),
+	      prompt (GetReference (), DG::Rect (16, 16, 324, 34)),
+	      groupingMode (GetReference (), DG::Rect (16, 38, 324, 60), 8, 4),
+	      cancelButton (GetReference (), DG::Rect (172, 78, 244, 102)),
+	      okButton (GetReference (), DG::Rect (252, 78, 324, 102))
+	{
+		SetTitle ("GLB export settings");
+		prompt.SetText ("Group exported model by:");
+		for (const char* item : {"Surface / Texture", "Layer", "Element type"}) {
+			groupingMode.AppendItem ();
+			groupingMode.SetItemText (groupingMode.GetItemCount (), item);
+		}
+		groupingMode.SelectItem (1);
+		cancelButton.SetText ("Cancel");
+		cancelButton.SetAsCancel ();
+		okButton.SetText ("Export");
+		okButton.SetAsDefault ();
+		cancelButton.Attach (*this);
+		okButton.Attach (*this);
+		ShowItems ();
+	}
+
+	~ExportOptionsDialog ()
+	{
+		cancelButton.Detach (*this);
+		okButton.Detach (*this);
+	}
+
+	GroupingMode GetGroupingMode () const
+	{
+		switch (groupingMode.GetSelectedItem ()) {
+			case 2:
+				return GroupingMode::Layer;
+			case 3:
+				return GroupingMode::ElementType;
+			default:
+				return GroupingMode::Surface;
+		}
+	}
+
+private:
+	void ButtonClicked (const DG::ButtonClickEvent& event) override
+	{
+		PostCloseRequest (event.GetSource () == &okButton ? Accept : Cancel);
+	}
+
+	DG::LeftText prompt;
+	DG::PopUp groupingMode;
+	DG::Button cancelButton;
+	DG::Button okButton;
+};
 
 struct ExportStatistics {
 	Int32 emptyElementCount = 0;
@@ -65,20 +131,22 @@ const char* GetElementTypeName (const API_ElemType& type)
 			return "Wall";
 		case API_SlabID:
 			return "Slab";
+		case API_ColumnID:
 		case API_ColumnSegmentID:
-			return "Column segment";
+			return "Column";
+		case API_BeamID:
 		case API_BeamSegmentID:
-			return "Beam segment";
+			return "Beam";
 		case API_RoofID:
 			return "Roof";
 		case API_ShellID:
 			return "Shell";
+		case API_StairID:
 		case API_RiserID:
-			return "Stair riser";
 		case API_TreadID:
-			return "Stair tread";
 		case API_StairStructureID:
-			return "Stair structure";
+			return "Stair";
+		case API_RailingID:
 		case API_RailingPostID:
 		case API_RailingInnerPostID:
 		case API_RailingRailID:
@@ -92,7 +160,7 @@ const char* GetElementTypeName (const API_ElemType& type)
 		case API_RailingRailConnectionID:
 		case API_RailingHandrailConnectionID:
 		case API_RailingToprailConnectionID:
-			return "Railing component";
+			return "Railing";
 		case API_ObjectID:
 			return "Object";
 		case API_LampID:
@@ -101,14 +169,12 @@ const char* GetElementTypeName (const API_ElemType& type)
 			return "MORPH";
 		case API_MeshID:
 			return "Mesh/terrain";
+		case API_CurtainWallID:
 		case API_CurtainWallFrameID:
-			return "Curtain wall frame";
 		case API_CurtainWallPanelID:
-			return "Curtain wall panel";
 		case API_CurtainWallJunctionID:
-			return "Curtain wall junction";
 		case API_CurtainWallAccessoryID:
-			return "Curtain wall accessory";
+			return "Curtain wall";
 		case API_WindowID:
 			return "Window";
 		case API_DoorID:
@@ -333,6 +399,12 @@ CornerNormals CalculateBodyCornerNormals (Int32 bodyVertexCount, Int32 polygonCo
 }
 
 using MaterialIndexMap = std::map<Int32, std::size_t>;
+using GroupIndexMap = std::map<std::string, std::size_t>;
+
+struct GroupDescriptor {
+	std::string key;
+	std::string name;
+};
 
 struct VisibleBodyGroup {
 	API_Elem_Head parent {};
@@ -342,23 +414,36 @@ struct VisibleBodyGroup {
 struct CollectionCheckpoint {
 	explicit CollectionCheckpoint (const Model& model)
 	    : positionCount (model.positions.size ()), normalCount (model.normals.size ()),
-	      textureCoordinateCount (model.textureCoordinates.size ()), materialCount (model.materials.size ())
+	      textureCoordinateCount (model.textureCoordinates.size ()), materialCount (model.materials.size ()),
+	      groupCount (model.groups.size ())
 	{
-		materialIndexCounts.reserve (materialCount);
-		for (const Material& material : model.materials)
-			materialIndexCounts.push_back (material.indices.size ());
+		groupPrimitiveIndexCounts.reserve (groupCount);
+		for (const DropView::Glb::Group& group : model.groups) {
+			groupPrimitiveIndexCounts.emplace_back ();
+			for (const Primitive& primitive : group.primitives)
+				groupPrimitiveIndexCounts.back ().push_back (primitive.indices.size ());
+		}
 	}
 
-	void RollBack (Model& model, MaterialIndexMap& materialIndices) const
+	void RollBack (Model& model, MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices) const
 	{
 		model.positions.resize (positionCount);
 		model.normals.resize (normalCount);
 		model.textureCoordinates.resize (textureCoordinateCount);
-		for (std::size_t i = 0; i < materialCount; ++i)
-			model.materials[i].indices.resize (materialIndexCounts[i]);
 		while (model.materials.size () > materialCount) {
 			materialIndices.erase (model.materials.back ().sourceIndex);
 			model.materials.pop_back ();
+		}
+		for (std::size_t groupIndex = 0; groupIndex < groupCount; ++groupIndex) {
+			model.groups[groupIndex].primitives.resize (groupPrimitiveIndexCounts[groupIndex].size ());
+			for (std::size_t primitiveIndex = 0; primitiveIndex < groupPrimitiveIndexCounts[groupIndex].size ();
+			     ++primitiveIndex)
+				model.groups[groupIndex].primitives[primitiveIndex].indices.resize (
+				    groupPrimitiveIndexCounts[groupIndex][primitiveIndex]);
+		}
+		while (model.groups.size () > groupCount) {
+			groupIndices.erase (model.groups.back ().key);
+			model.groups.pop_back ();
 		}
 	}
 
@@ -366,7 +451,8 @@ struct CollectionCheckpoint {
 	std::size_t normalCount;
 	std::size_t textureCoordinateCount;
 	std::size_t materialCount;
-	std::vector<std::size_t> materialIndexCounts;
+	std::size_t groupCount;
+	std::vector<std::vector<std::size_t>> groupPrimitiveIndexCounts;
 };
 
 std::vector<VisibleBodyGroup> GetVisibleBodyGroups (Int32 visibleBodyCount)
@@ -431,9 +517,58 @@ std::size_t GetOrCreateMaterial (Int32 sourceIndex, Model& model, MaterialIndexM
 	return materialIndex;
 }
 
+std::string GetLayerName (API_AttributeIndex layerIndex)
+{
+	API_Attribute layer {};
+	layer.header.typeID = API_LayerID;
+	layer.header.index = layerIndex;
+	if (ACAPI_Attribute_Get (&layer) == NoError && layer.header.name[0] != '\0')
+		return layer.header.name;
+	return "Layer " + std::to_string (layerIndex.ToInt32_Deprecated ());
+}
+
+GroupDescriptor GetElementGroup (GroupingMode groupingMode, const API_Elem_Head& element)
+{
+	if (groupingMode == GroupingMode::Layer) {
+		const std::string layerIndex = std::to_string (element.layer.ToInt32_Deprecated ());
+		return {"layer:" + layerIndex, GetLayerName (element.layer)};
+	}
+	if (groupingMode == GroupingMode::ElementType) {
+		const std::string typeName = GetElementTypeName (element.type);
+		return {"element-type:" + typeName, typeName};
+	}
+	return {};
+}
+
+std::size_t GetOrCreateGroup (const GroupDescriptor& descriptor, Model& model, GroupIndexMap& groupIndices)
+{
+	const auto existingGroup = groupIndices.find (descriptor.key);
+	if (existingGroup != groupIndices.end ())
+		return existingGroup->second;
+
+	const std::size_t groupIndex = model.groups.size ();
+	model.groups.push_back ({descriptor.key, descriptor.name, {}});
+	groupIndices[descriptor.key] = groupIndex;
+	return groupIndex;
+}
+
+Primitive& GetOrCreatePrimitive (DropView::Glb::Group& group, std::size_t materialIndex)
+{
+	auto primitive =
+	    std::find_if (group.primitives.begin (), group.primitives.end (), [materialIndex] (const Primitive& candidate) {
+		    return candidate.materialIndex == materialIndex;
+	    });
+	if (primitive == group.primitives.end ()) {
+		group.primitives.push_back ({materialIndex, {}});
+		return group.primitives.back ();
+	}
+	return *primitive;
+}
+
 void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 bodyVertexCount,
                      const API_Tranmat& transform, Int32 elementIndex, Int32 localBodyIndex, Model& model,
-                     MaterialIndexMap& materialIndices, const CornerNormals& cornerNormals)
+                     MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices, GroupingMode groupingMode,
+                     const GroupDescriptor& elementGroup, const CornerNormals& cornerNormals)
 {
 	const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 	if (polygonContours.empty ())
@@ -465,6 +600,13 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 	}
 	const auto triangles = GlbGeometry::Triangulate (localRings, localNormal);
 	const std::size_t materialIndex = GetOrCreateMaterial (polygon.iumat, model, materialIndices);
+	const Material& material = model.materials[materialIndex];
+	const GroupDescriptor groupDescriptor =
+	    groupingMode == GroupingMode::Surface
+	        ? GroupDescriptor {"surface:" + std::to_string (material.sourceIndex), material.name}
+	        : elementGroup;
+	DropView::Glb::Group& group = model.groups[GetOrCreateGroup (groupDescriptor, model, groupIndices)];
+	Primitive& primitive = GetOrCreatePrimitive (group, materialIndex);
 	if (model.positions.size () > std::numeric_limits<std::uint32_t>::max ())
 		throw std::length_error ("Vertex count exceeds the GLB 32-bit index limit");
 	const std::uint32_t base = static_cast<std::uint32_t> (model.positions.size ());
@@ -501,10 +643,11 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 		}
 	}
 	for (std::uint32_t index : triangles)
-		model.materials[materialIndex].indices.push_back (base + index);
+		primitive.indices.push_back (base + index);
 }
 
-void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndices, ExportStatistics& statistics,
+void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices,
+                  GroupingMode groupingMode, const GroupDescriptor& elementGroup, ExportStatistics& statistics,
                   Int32& skippedPolygonCount, std::string& lastPolygonError)
 {
 	API_Component3D component {};
@@ -533,7 +676,7 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 		}
 		try {
 			CollectPolygon (polygon, polygonIndex, bodyVertexCount, transform, elementIndex, localBodyIndex, model,
-			                materialIndices, cornerNormals);
+			                materialIndices, groupIndices, groupingMode, elementGroup, cornerNormals);
 		} catch (const GlbGeometry::DegeneratePolygon&) {
 			// GDL objects commonly contain intentional zero-area helper polygons.
 			// They have no visible surface and can be omitted without data loss.
@@ -547,24 +690,27 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 std::size_t CountTriangles (const Model& model)
 {
 	std::size_t count = 0;
-	for (const Material& material : model.materials)
-		count += material.indices.size () / 3;
+	for (const DropView::Glb::Group& group : model.groups)
+		for (const Primitive& primitive : group.primitives)
+			count += primitive.indices.size () / 3;
 	return count;
 }
 
 void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, MaterialIndexMap& materialIndices,
-                     ExportStatistics& statistics)
+                     GroupIndexMap& groupIndices, GroupingMode groupingMode, ExportStatistics& statistics)
 {
 	const API_Elem_Head& element = visibleBodyGroup.parent;
 	const char* typeName = GetElementTypeName (element.type);
 	const GS::UniString elementGuid = APIGuid2GSGuid (element.guid).ToUniString ();
+	const GroupDescriptor elementGroup = GetElementGroup (groupingMode, element);
 	const CollectionCheckpoint checkpoint (model);
 	try {
 		Int32 skippedPolygonCount = 0;
 		std::string lastPolygonError;
 		const std::size_t trianglesBefore = CountTriangles (model);
 		for (Int32 bodyIndex : visibleBodyGroup.bodyIndices)
-			CollectBody (bodyIndex, model, materialIndices, statistics, skippedPolygonCount, lastPolygonError);
+			CollectBody (bodyIndex, model, materialIndices, groupIndices, groupingMode, elementGroup, statistics,
+			             skippedPolygonCount, lastPolygonError);
 		if (CountTriangles (model) == trianglesBefore)
 			++statistics.emptyElementCount;
 		if (skippedPolygonCount > 0) {
@@ -575,25 +721,26 @@ void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, Mat
 			    typeName, elementGuid.ToCStr ().Get (), skippedPolygonCount, lastPolygonError.c_str ());
 		}
 	} catch (const std::exception& error) {
-		checkpoint.RollBack (model, materialIndices);
+		checkpoint.RollBack (model, materialIndices, groupIndices);
 		++statistics.failedElementCount;
 		statistics.elementReport +=
 		    GS::UniString::Printf ("\nERROR – %s, GUID: %s: %s. The element was skipped and export continued.",
-		                           typeName, elementGuid.ToCStr ().Get (), error.what ());
+			                       typeName, elementGuid.ToCStr ().Get (), error.what ());
 	}
 }
 
-bool CollectMesh (Model& model, ExportStatistics& statistics)
+bool CollectMesh (Model& model, GroupingMode groupingMode, ExportStatistics& statistics)
 {
 	Int32 visibleBodyCount = 0;
 	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
 		return false;
 
 	MaterialIndexMap materialIndices;
+	GroupIndexMap groupIndices;
 	const std::vector<VisibleBodyGroup> visibleBodyGroups = GetVisibleBodyGroups (visibleBodyCount);
 	for (const VisibleBodyGroup& group : visibleBodyGroups)
-		CollectElement (group, model, materialIndices, statistics);
-	return !model.positions.empty () && !model.materials.empty ();
+		CollectElement (group, model, materialIndices, groupIndices, groupingMode, statistics);
+	return !model.positions.empty () && !model.materials.empty () && !model.groups.empty ();
 }
 
 bool WriteGlb (const IO::Location& location, const Model& model)
@@ -617,6 +764,11 @@ bool WriteGlb (const IO::Location& location, const Model& model)
 
 void ExportActive3DWindowToGlb ()
 {
+	ExportOptionsDialog optionsDialog;
+	if (!optionsDialog.Invoke ())
+		return;
+	const GroupingMode groupingMode = optionsDialog.GetGroupingMode ();
+
 	// Ask for the destination before potentially expensive stair/railing mesh processing.
 	DG::FileDialog dialog (DG::FileDialog::Save);
 	dialog.SetTitle ("Export active 3D window to GLB");
@@ -634,11 +786,11 @@ void ExportActive3DWindowToGlb ()
 		if (sight.GetError () != NoError) {
 			ACAPI_WriteReport (
 			    GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.",
-			                           sight.GetError ()),
+				                       sight.GetError ()),
 			    true);
 			return;
 		}
-		if (!CollectMesh (model, statistics)) {
+		if (!CollectMesh (model, groupingMode, statistics)) {
 			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
 			return;
 		}

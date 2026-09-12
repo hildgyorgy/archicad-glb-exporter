@@ -21,7 +21,7 @@ The add-on uses the active Archicad 3D window as the source of truth. It exports
 - texture size and rotation;
 - smooth shading for Archicad surfaces marked as curved, while preserving hard edges;
 - active Graphical Overrides;
-- surface-based GLB mesh groups for visibility controls in compatible viewers.
+- selectable surface, layer or element-type GLB mesh groups for visibility controls in compatible viewers.
 
 Supported element families currently include walls, slabs, columns, beams, roofs, shells, stairs, railings, objects, lamps, Morphs, meshes/terrain, curtain walls, windows, doors and skylights.
 
@@ -41,8 +41,13 @@ Lighting, shadows, the Archicad environment, cameras and 2D drawing information 
 1. Open and activate an Archicad 3D window.
 2. Prepare the geometry and appearance you want to share, including 3D cuts and Graphical Overrides where required.
 3. Choose **Drop & View GLB Exporter > Export active 3D window to GLB…**.
-4. Choose the destination `.glb` file.
-5. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+4. Choose one grouping mode: **Surface / Texture**, **Layer** or **Element type**. The exported GLB contains one
+   independently identifiable node and mesh for each group; materials and textures remain attached to their geometry.
+5. Choose the destination `.glb` file.
+6. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+
+Only the selected grouping hierarchy is written to a GLB. Export the same Archicad view again with another mode when a
+different visibility list is required. **Surface / Texture** preserves the original exporter grouping behavior.
 
 The export command is disabled outside the 3D window. If an element contains invalid polygons, the exporter attempts to export its valid geometry and reports the skipped parts after completion.
 

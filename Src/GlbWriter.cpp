@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
 
 namespace DropView::Glb {
 namespace {
@@ -51,10 +52,21 @@ struct Accessor {
 };
 
 struct PrimitiveReferences {
+	std::size_t materialIndex;
 	std::size_t positionAccessor;
 	std::size_t normalAccessor;
 	std::size_t textureCoordinateAccessor;
 	std::size_t indexAccessor;
+};
+
+struct PackedPrimitive {
+	std::size_t materialIndex;
+	PackedGeometry geometry;
+};
+
+struct PackedGroup {
+	std::string name;
+	std::vector<PackedPrimitive> primitives;
 };
 
 struct EmbeddedImage {
@@ -155,39 +167,58 @@ private:
 	}
 };
 
-std::vector<PackedGeometry> PackGeometry (const Model& model)
+PackedGeometry PackGeometry (const Model& model, const Primitive& primitive)
+{
+	if (primitive.materialIndex >= model.materials.size ())
+		throw std::out_of_range ("Primitive references an invalid material");
+	if (primitive.indices.empty () || primitive.indices.size () % 3 != 0)
+		throw std::invalid_argument ("Every primitive must contain complete triangles");
+
+	PackedGeometry packed;
+	std::unordered_map<std::uint32_t, std::uint32_t> remappedIndices;
+	for (const std::uint32_t sourceIndex : primitive.indices) {
+		if (sourceIndex >= model.positions.size ())
+			throw std::out_of_range ("Primitive index exceeds the vertex arrays");
+		auto remapped = remappedIndices.find (sourceIndex);
+		if (remapped == remappedIndices.end ()) {
+			const std::uint32_t targetIndex = CheckedU32 (packed.positions.size (), "Vertex count");
+			remappedIndices[sourceIndex] = targetIndex;
+			packed.positions.push_back (model.positions[sourceIndex]);
+			packed.normals.push_back (model.normals[sourceIndex]);
+			packed.textureCoordinates.push_back (model.textureCoordinates[sourceIndex]);
+			const Vec3& point = packed.positions.back ();
+			packed.minimum.x = std::min (packed.minimum.x, point.x);
+			packed.minimum.y = std::min (packed.minimum.y, point.y);
+			packed.minimum.z = std::min (packed.minimum.z, point.z);
+			packed.maximum.x = std::max (packed.maximum.x, point.x);
+			packed.maximum.y = std::max (packed.maximum.y, point.y);
+			packed.maximum.z = std::max (packed.maximum.z, point.z);
+			packed.indices.push_back (targetIndex);
+		} else {
+			packed.indices.push_back (remapped->second);
+		}
+	}
+	return packed;
+}
+
+std::vector<PackedGroup> PackGroups (const Model& model)
 {
 	if (model.positions.size () != model.normals.size () || model.positions.size () != model.textureCoordinates.size ())
 		throw std::invalid_argument ("Position, normal and texture-coordinate counts differ");
+	if (model.groups.empty ())
+		throw std::invalid_argument ("The GLB model has no groups");
 
-	std::vector<PackedGeometry> result (model.materials.size ());
-	for (std::size_t materialIndex = 0; materialIndex < model.materials.size (); ++materialIndex) {
-		PackedGeometry& packed = result[materialIndex];
-		std::unordered_map<std::uint32_t, std::uint32_t> remappedIndices;
-		for (const std::uint32_t sourceIndex : model.materials[materialIndex].indices) {
-			if (sourceIndex >= model.positions.size ())
-				throw std::out_of_range ("Material index exceeds the vertex arrays");
-			auto remapped = remappedIndices.find (sourceIndex);
-			if (remapped == remappedIndices.end ()) {
-				const std::uint32_t targetIndex = CheckedU32 (packed.positions.size (), "Vertex count");
-				remappedIndices[sourceIndex] = targetIndex;
-				packed.positions.push_back (model.positions[sourceIndex]);
-				packed.normals.push_back (model.normals[sourceIndex]);
-				packed.textureCoordinates.push_back (model.textureCoordinates[sourceIndex]);
-				const Vec3& point = packed.positions.back ();
-				packed.minimum.x = std::min (packed.minimum.x, point.x);
-				packed.minimum.y = std::min (packed.minimum.y, point.y);
-				packed.minimum.z = std::min (packed.minimum.z, point.z);
-				packed.maximum.x = std::max (packed.maximum.x, point.x);
-				packed.maximum.y = std::max (packed.maximum.y, point.y);
-				packed.maximum.z = std::max (packed.maximum.z, point.z);
-				packed.indices.push_back (targetIndex);
-			} else {
-				packed.indices.push_back (remapped->second);
-			}
-		}
-		if (packed.indices.empty () || packed.indices.size () % 3 != 0)
-			throw std::invalid_argument ("Every material must contain complete triangles");
+	std::vector<PackedGroup> result;
+	result.reserve (model.groups.size ());
+	for (const Group& group : model.groups) {
+		if (group.name.empty () || group.primitives.empty ())
+			throw std::invalid_argument ("Every group must have a name and geometry");
+		PackedGroup packedGroup;
+		packedGroup.name = group.name;
+		packedGroup.primitives.reserve (group.primitives.size ());
+		for (const Primitive& primitive : group.primitives)
+			packedGroup.primitives.push_back ({primitive.materialIndex, PackGeometry (model, primitive)});
+		result.push_back (std::move (packedGroup));
 	}
 	return result;
 }
@@ -199,23 +230,29 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	if (model.materials.empty ())
 		throw std::invalid_argument ("The GLB model has no materials");
 
-	const std::vector<PackedGeometry> packedGeometry = PackGeometry (model);
+	const std::vector<PackedGroup> packedGroups = PackGroups (model);
 	LayoutBuilder layout;
-	std::vector<PrimitiveReferences> primitiveReferences;
-	primitiveReferences.reserve (packedGeometry.size ());
-	for (const PackedGeometry& packed : packedGeometry) {
-		const std::size_t positionView = layout.AddTypedBufferView (packed.positions, Constant::ArrayBuffer);
-		const std::size_t normalView = layout.AddTypedBufferView (packed.normals, Constant::ArrayBuffer);
-		const std::size_t textureCoordinateView =
-		    layout.AddTypedBufferView (packed.textureCoordinates, Constant::ArrayBuffer);
-		const std::size_t indexView = layout.AddTypedBufferView (packed.indices, Constant::ElementArrayBuffer);
-		primitiveReferences.push_back (
-		    {layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
-		                         packed.minimum, packed.maximum),
-		     layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
-		     layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
-		                         "VEC2"),
-		     layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")});
+	std::vector<std::vector<PrimitiveReferences>> primitiveReferences;
+	primitiveReferences.reserve (packedGroups.size ());
+	for (const PackedGroup& group : packedGroups) {
+		primitiveReferences.emplace_back ();
+		primitiveReferences.back ().reserve (group.primitives.size ());
+		for (const PackedPrimitive& primitive : group.primitives) {
+			const PackedGeometry& packed = primitive.geometry;
+			const std::size_t positionView = layout.AddTypedBufferView (packed.positions, Constant::ArrayBuffer);
+			const std::size_t normalView = layout.AddTypedBufferView (packed.normals, Constant::ArrayBuffer);
+			const std::size_t textureCoordinateView =
+			    layout.AddTypedBufferView (packed.textureCoordinates, Constant::ArrayBuffer);
+			const std::size_t indexView = layout.AddTypedBufferView (packed.indices, Constant::ElementArrayBuffer);
+			primitiveReferences.back ().push_back (
+			    {primitive.materialIndex,
+				 layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
+				                     packed.minimum, packed.maximum),
+				 layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
+				 layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
+				                     "VEC2"),
+				 layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")});
+		}
 	}
 
 	std::vector<EmbeddedImage> embeddedImages;
@@ -229,7 +266,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		    std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
 			    const Material& existingMaterial = model.materials[image.materialIndex];
 			    return existingMaterial.imageMimeType == model.materials[i].imageMimeType &&
-			           existingMaterial.imageData == model.materials[i].imageData;
+				       existingMaterial.imageData == model.materials[i].imageData;
 		    });
 		if (existingImage == embeddedImages.end ()) {
 			const int imageIndex = static_cast<int> (embeddedImages.size ());
@@ -246,27 +283,32 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
 	     << EscapeJsonString (generator) << "\"}," << "\"scene\":0,\"scenes\":[{\"nodes\":[";
-	for (std::size_t i = 0; i < model.materials.size (); ++i) {
+	for (std::size_t i = 0; i < model.groups.size (); ++i) {
 		if (i > 0)
 			json << ',';
 		json << i;
 	}
 	json << "]}],\"nodes\":[";
-	for (std::size_t i = 0; i < model.materials.size (); ++i) {
+	for (std::size_t i = 0; i < model.groups.size (); ++i) {
 		if (i > 0)
 			json << ',';
-		json << "{\"mesh\":" << i << ",\"name\":\"" << EscapeJsonString (model.materials[i].name) << "\"}";
+		json << "{\"mesh\":" << i << ",\"name\":\"" << EscapeJsonString (model.groups[i].name) << "\"}";
 	}
 	json << "],\"meshes\":[";
-	for (std::size_t i = 0; i < model.materials.size (); ++i) {
+	for (std::size_t i = 0; i < model.groups.size (); ++i) {
 		if (i > 0)
 			json << ',';
-		const PrimitiveReferences& references = primitiveReferences[i];
-		json << "{\"name\":\"" << EscapeJsonString (model.materials[i].name)
-		     << "\",\"primitives\":[{\"attributes\":{\"POSITION\":" << references.positionAccessor
-		     << ",\"NORMAL\":" << references.normalAccessor
-		     << ",\"TEXCOORD_0\":" << references.textureCoordinateAccessor
-		     << "},\"indices\":" << references.indexAccessor << ",\"material\":" << i << "}]}";
+		json << "{\"name\":\"" << EscapeJsonString (model.groups[i].name) << "\",\"primitives\":[";
+		for (std::size_t primitiveIndex = 0; primitiveIndex < primitiveReferences[i].size (); ++primitiveIndex) {
+			if (primitiveIndex > 0)
+				json << ',';
+			const PrimitiveReferences& references = primitiveReferences[i][primitiveIndex];
+			json << "{\"attributes\":{\"POSITION\":" << references.positionAccessor
+			     << ",\"NORMAL\":" << references.normalAccessor
+			     << ",\"TEXCOORD_0\":" << references.textureCoordinateAccessor
+			     << "},\"indices\":" << references.indexAccessor << ",\"material\":" << references.materialIndex << '}';
+		}
+		json << "]}";
 	}
 	json << "],\"materials\":[";
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {

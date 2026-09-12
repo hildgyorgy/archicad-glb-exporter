@@ -34,7 +34,6 @@ int main (int argumentCount, char** arguments)
 	masked.name = "Masked \"surface\"";
 	masked.alphaMask = true;
 	masked.texture.mirrorX = true;
-	masked.indices = {0, 1, 2};
 	masked.imageData = sharedImage;
 	masked.imageMimeType = "image/png";
 
@@ -42,7 +41,6 @@ int main (int argumentCount, char** arguments)
 	blended.name = "Blended surface";
 	blended.alpha = 0.5;
 	blended.texture.mirrorY = true;
-	blended.indices = {3, 4, 5};
 	blended.imageData = sharedImage;
 	blended.imageMimeType = "image/png";
 
@@ -51,12 +49,20 @@ int main (int argumentCount, char** arguments)
 	solid.red = 0.125;
 	solid.green = 0.25;
 	solid.blue = 0.75;
-	solid.indices = {6, 7, 8};
 
 	model.materials = {masked, blended, solid};
+	model.groups = {{"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}}},
+	                {"layer:2", "Layer: Site", {{2, {6, 7, 8}}}},
+	                {"layer:3", "Layer: Reused material", {{0, {0, 1, 2}}}}};
 	const std::vector<char> glb = DropView::Glb::BuildBinary (model, "Drop & View \"writer\"\ntest");
 
 	RequireFailure ([] { (void)DropView::Glb::BuildBinary ({}, "empty"); }, "Model without materials was accepted");
+	RequireFailure (
+	    [model] () mutable {
+		    model.groups.clear ();
+		    (void)DropView::Glb::BuildBinary (model, "missing groups");
+	    },
+	    "Model without groups was accepted");
 	RequireFailure (
 	    [model] () mutable {
 		    model.normals.pop_back ();
@@ -65,16 +71,22 @@ int main (int argumentCount, char** arguments)
 	    "Mismatched vertex attributes were accepted");
 	RequireFailure (
 	    [model] () mutable {
-		    model.materials[0].indices = {0, 1};
+		    model.groups[0].primitives[0].indices = {0, 1};
 		    (void)DropView::Glb::BuildBinary (model, "incomplete triangle");
 	    },
 	    "Incomplete triangle was accepted");
 	RequireFailure (
 	    [model] () mutable {
-		    model.materials[0].indices = {0, 1, 99};
+		    model.groups[0].primitives[0].indices = {0, 1, 99};
 		    (void)DropView::Glb::BuildBinary (model, "invalid index");
 	    },
 	    "Out-of-range vertex index was accepted");
+	RequireFailure (
+	    [model] () mutable {
+		    model.groups[0].primitives[0].materialIndex = model.materials.size ();
+		    (void)DropView::Glb::BuildBinary (model, "invalid material");
+	    },
+	    "Out-of-range material index was accepted");
 	std::ofstream output (arguments[1], std::ios::binary | std::ios::trunc);
 	if (!output)
 		throw std::runtime_error ("Cannot create GLB fixture");

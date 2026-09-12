@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -36,9 +37,19 @@ struct Material {
 	double alpha = 1.0;
 	TextureParameters texture;
 	bool alphaMask = false;
-	std::vector<std::uint32_t> indices;
 	std::vector<char> imageData;
 	std::string imageMimeType;
+};
+
+struct Primitive {
+	std::size_t materialIndex = 0;
+	std::vector<std::uint32_t> indices;
+};
+
+struct Group {
+	std::string key;
+	std::string name;
+	std::vector<Primitive> primitives;
 };
 
 struct Model {
@@ -46,6 +57,7 @@ struct Model {
 	std::vector<Vec3> normals;
 	std::vector<Vec2> textureCoordinates;
 	std::vector<Material> materials;
+	std::vector<Group> groups;
 };
 
 std::vector<char> BuildBinary (const Model& model, const std::string& generator);
