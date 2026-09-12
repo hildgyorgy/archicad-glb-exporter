@@ -1,4 +1,4 @@
-# Drop & View GLB Exporter v0.5.0-beta
+# Drop & View GLB Exporter v0.6.0-beta
 
 This beta improves material compatibility and the appearance of curved Archicad geometry. The active Archicad 3D window remains the complete source of exported geometry and appearance.
 

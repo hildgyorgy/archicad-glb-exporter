@@ -245,8 +245,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
-	     << EscapeJsonString (generator) << "\"},"
-	     << "\"scene\":0,\"scenes\":[{\"nodes\":[";
+	     << EscapeJsonString (generator) << "\"}," << "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < model.materials.size (); ++i) {
 		if (i > 0)
 			json << ',';
