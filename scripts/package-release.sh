@@ -2,7 +2,8 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "$0")/.." && pwd)"
-release_version="${RELEASE_VERSION:-0.5.0-beta}"
+default_version="$(tr -d '[:space:]' < "${project_root}/VERSION")"
+release_version="${RELEASE_VERSION:-${default_version}}"
 temporary_root="${TMPDIR%/}/dropview-glb-exporter-release"
 stage_dir="${temporary_root}/stage/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}"
 output_dmg="${project_root}/dist/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}.dmg"
@@ -36,7 +37,7 @@ build_and_stage () {
         -DAC_API_DEVKIT_DIR="${devkit_dir}" \
         -DAC_ADDON_NAME=DropViewGLBExporter \
         -DAC_ADDON_LANGUAGE=INT \
-        -DDROPVIEW_VERSION="${release_version}"
+        -DDROPVIEW_VERSION_OVERRIDE="${release_version}"
     cmake --build "${build_dir}" --config Release
 
     local bundle_path="${build_dir}/Release/DropViewGLBExporter.bundle"

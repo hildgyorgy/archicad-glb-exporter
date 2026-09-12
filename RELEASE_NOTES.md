@@ -1,6 +1,6 @@
-# Drop & View GLB Exporter v0.6.0-beta
+# Drop & View GLB Exporter
 
-This beta improves material compatibility and the appearance of curved Archicad geometry. The active Archicad 3D window remains the complete source of exported geometry and appearance.
+This production release adds selectable model grouping while retaining the material compatibility and curved-geometry improvements from the beta releases. The active Archicad 3D window remains the complete source of exported geometry and appearance.
 
 ## Requirements
 
@@ -16,7 +16,9 @@ This beta improves material compatibility and the appearance of curved Archicad 
 - Preserves the result of active Graphical Overrides.
 - Supports major architectural, structural, library-object and site element families.
 - Includes visible doors, windows and skylights directly from the active 3D model.
-- Groups GLB meshes by effective surface.
+- Offers Surface / Texture, Layer and Element type grouping at export time.
+- Writes each selected group as a clearly named glTF node and mesh, with material-specific primitives inside it.
+- Preserves materials and embedded textures in every grouping mode.
 - Continues past invalid polygons where possible and reports skipped geometry.
 - Uses the embedded texture as the glTF base colour without applying Archicad's surface colour a second time.
 - Builds Archicad 28 and 29 packages for macOS and Windows from one GitHub Actions release workflow.
@@ -25,9 +27,9 @@ This beta improves material compatibility and the appearance of curved Archicad 
 - Adds portable regression tests for curved-surface normal generation and hard-edge preservation.
 - Applies stricter compiler warnings while keeping required Archicad SDK exceptions narrowly scoped.
 
-## Beta notice
+## Verification note
 
-This build is intended for evaluation and feedback. Compare every exported model with the source Archicad 3D view before professional or client use. Please report reproducible problems through GitHub Issues without uploading confidential project material publicly.
+Compare exported models with the source Archicad 3D view as part of your normal delivery checks. Please report reproducible problems through GitHub Issues without uploading confidential project material publicly.
 
 ## Installation
 

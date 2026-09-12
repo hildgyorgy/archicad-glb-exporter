@@ -599,6 +599,12 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 		}
 	}
 	const auto triangles = GlbGeometry::Triangulate (localRings, localNormal);
+	constexpr std::uint64_t maxVertexCount =
+	    static_cast<std::uint64_t> (std::numeric_limits<std::uint32_t>::max ()) + 1;
+	const std::uint64_t existingVertexCount = static_cast<std::uint64_t> (model.positions.size ());
+	if (existingVertexCount > maxVertexCount ||
+	    static_cast<std::uint64_t> (vertices.size ()) > maxVertexCount - existingVertexCount)
+		throw std::length_error ("Vertex count exceeds the GLB 32-bit index limit");
 	const std::size_t materialIndex = GetOrCreateMaterial (polygon.iumat, model, materialIndices);
 	const Material& material = model.materials[materialIndex];
 	const GroupDescriptor groupDescriptor =
@@ -607,8 +613,6 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 	        : elementGroup;
 	DropView::Glb::Group& group = model.groups[GetOrCreateGroup (groupDescriptor, model, groupIndices)];
 	Primitive& primitive = GetOrCreatePrimitive (group, materialIndex);
-	if (model.positions.size () > std::numeric_limits<std::uint32_t>::max ())
-		throw std::length_error ("Vertex count exceeds the GLB 32-bit index limit");
 	const std::uint32_t base = static_cast<std::uint32_t> (model.positions.size ());
 	std::size_t flattenedVertexIndex = 0;
 	for (const auto& ring : polygonContours) {

@@ -12,7 +12,6 @@ on:
       version:
         description: Package version without the leading v
         required: true
-        default: 0.5.0-beta
   push:
     tags:
       - "v*"
@@ -108,7 +107,7 @@ jobs:
             -DAC_API_DEVKIT_DIR="$env:AC_API_DEVKIT_DIR" `
             -DAC_ADDON_NAME="$env:ADDON_NAME" `
             -DAC_ADDON_LANGUAGE="INT" `
-            -DDROPVIEW_VERSION="$version"
+            -DDROPVIEW_VERSION_OVERRIDE="$version"
 
       - name: Build (Release)
         shell: pwsh
@@ -160,7 +159,7 @@ jobs:
           } elseif ("${{ inputs.version }}") {
             "${{ inputs.version }}"
           } else {
-            "0.5.0-beta"
+            throw "No package version was provided."
           }
           $archiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$version"
           $stage = Join-Path $env:RUNNER_TEMP $archiveName

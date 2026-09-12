@@ -6,7 +6,8 @@
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = (Resolve-Path "$PSScriptRoot/..").Path
-$ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { "0.5.0-beta" }
+$DefaultVersion = (Get-Content (Join-Path $ProjectRoot "VERSION") -Raw).Trim()
+$ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { $DefaultVersion }
 $ArchiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$ReleaseVersion"
 $AddonName = "DropViewGLBExporter"
 $TemporaryRoot = Join-Path $env:TEMP "dropview-glb-exporter-release"
@@ -34,7 +35,7 @@ foreach ($target in $Targets) {
         -DAC_API_DEVKIT_DIR="$($target.DevKit)" `
         -DAC_ADDON_NAME="$AddonName" `
         -DAC_ADDON_LANGUAGE="INT" `
-        -DDROPVIEW_VERSION="$ReleaseVersion"
+        -DDROPVIEW_VERSION_OVERRIDE="$ReleaseVersion"
     cmake --build $BuildDir --config Release
 
     $ApxPath = Get-ChildItem -Path $BuildDir -Recurse -Filter "$AddonName.apx" | Select-Object -First 1

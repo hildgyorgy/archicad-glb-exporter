@@ -23,7 +23,6 @@ on:
       version:
         description: Package version without the leading v
         required: true
-        default: 0.5.0-beta
 
 permissions:
   contents: read
@@ -108,7 +107,7 @@ jobs:
             -DAC_API_DEVKIT_DIR="$AC_API_DEVKIT_DIR" \
             -DAC_ADDON_NAME="$ADDON_NAME" \
             -DAC_ADDON_LANGUAGE=INT \
-            -DDROPVIEW_VERSION="${{ inputs.version }}"
+            -DDROPVIEW_VERSION_OVERRIDE="${{ inputs.version }}"
 
       - name: Build (Release)
         shell: bash

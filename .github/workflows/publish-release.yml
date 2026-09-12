@@ -4,14 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version without the leading v
-        required: true
-        default: 0.5.0-beta
+        description: Release version without the leading v (leave empty to use VERSION)
+        required: false
         type: string
       prerelease:
         description: Mark the GitHub release as a pre-release
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -28,12 +27,18 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.value }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Validate version
         id: version
         shell: bash
         run: |
           set -euo pipefail
           version='${{ inputs.version }}'
+          if [[ -z "$version" ]]; then
+            version="$(tr -d '[:space:]' < VERSION)"
+          fi
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid version: $version" >&2
             exit 1
