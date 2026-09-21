@@ -11,6 +11,9 @@ This production release adds selectable model grouping while retaining the mater
 
 - Exports every visible body in the active Archicad 3D window without requiring an Archicad selection.
 - Preserves visible 3D cuts, effective surface colours, transparency, embedded textures, texture size and rotation.
+- Exports transparent and glass surfaces as thin physical glTF materials using `KHR_materials_transmission` and `KHR_materials_ior`, without confusing optical transmission with coverage alpha.
+- Keeps alpha-cutout foliage as `MASK`, omits unsafe volume/thickness guesses, and records the original Archicad surface parameters in glTF material extras.
+- Supports embedded base-colour, normal, packed metallic-roughness, occlusion and emissive texture slots in the GLB writer; Archicad 28–29 currently exposes only the base-colour surface image through this export path.
 - Converts TIFF surface textures to embedded PNG data during export, alongside direct PNG and JPEG support.
 - Smooths shading across edges marked as curved by Archicad while preserving hard edges and the original polygon count.
 - Preserves the result of active Graphical Overrides.

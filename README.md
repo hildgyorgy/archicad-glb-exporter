@@ -17,7 +17,8 @@ Intel Macs and earlier versions of macOS are not currently supported.
 The add-on uses the active Archicad 3D window as the source of truth. It exports every visible 3D body with the geometry and effective surface appearance shown there, including:
 
 - 3D cuts and other geometry visible in the active 3D window;
-- surface colours, transparency and embedded PNG, JPEG and TIFF image textures;
+- surface colours and embedded PNG, JPEG and TIFF base-colour textures;
+- Archicad transparent and glass surfaces as thin glTF transmission materials with physical reflections/refraction;
 - texture size and rotation;
 - smooth shading for Archicad surfaces marked as curved, while preserving hard edges;
 - active Graphical Overrides;
@@ -26,6 +27,30 @@ The add-on uses the active Archicad 3D window as the source of truth. It exports
 Supported element families currently include walls, slabs, columns, beams, roofs, shells, stairs, railings, objects, lamps, Morphs, meshes/terrain, curtain walls, windows, doors and skylights.
 
 Lighting, shadows, the Archicad environment, cameras and 2D drawing information are not baked into the GLB.
+
+### Materials and textures
+
+Archicad surface transparency is exported as `KHR_materials_transmission`, with
+`KHR_materials_ior` (1.5) and a roughness estimate derived from Archicad's
+shininess. It is deliberately not exported as `alphaMode: BLEND`: glTF alpha
+describes coverage, while transmission describes looking through glass. The
+exporter treats panes as thin surfaces and does not emit `KHR_materials_volume`,
+because the 3D model API does not provide reliable closed-volume and pane-
+thickness information. Alpha cutout textures, such as leaves, remain
+`alphaMode: MASK`.
+
+The GLB writer supports embedded base-colour (sRGB), normal (linear), packed
+metallic-roughness (roughness in G, metallic in B), occlusion (R) and emissive
+(sRGB) texture channels, with image deduplication and the exported UV/sampler
+settings. Archicad 28–29's `API_MaterialType` currently exposes only one surface
+image through the 3D model API, so the add-on can populate the base-colour
+channel but cannot retrieve separate normal, metallic-roughness, occlusion or
+emissive maps from an Archicad surface. The serializer is ready to retain those
+channels if a later API exposes them. Original surface name, index, material
+type, transparency, specular percentage and shininess are preserved in each
+material's `extras.archicad` object for compatibility and diagnostics. Emission
+colour and attenuation are mapped to glTF's emissive factor; the original
+attenuation is also retained in the extras object.
 
 ## Installation
 

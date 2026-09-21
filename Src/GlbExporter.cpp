@@ -492,7 +492,29 @@ Material ReadMaterial (Int32 sourceIndex)
 	material.red = sourceMaterial.surfaceRGB.f_red;
 	material.green = sourceMaterial.surfaceRGB.f_green;
 	material.blue = sourceMaterial.surfaceRGB.f_blue;
-	material.alpha = 1.0 - sourceMaterial.transpPc / 100.0;
+	material.sourceMaterialType = static_cast<std::int32_t> (sourceMaterial.mtype);
+	material.sourceTransparencyPercent = sourceMaterial.transpPc;
+	material.sourceSpecularPercent = sourceMaterial.specularPc;
+	material.sourceShine = sourceMaterial.shine;
+	material.sourceEmissionAttenuation = sourceMaterial.emissionAtt;
+	const double emissionFactor = std::clamp (sourceMaterial.emissionAtt / 100.0, 0.0, 1.0);
+	material.emissiveRed = sourceMaterial.emissionRGB.f_red * emissionFactor;
+	material.emissiveGreen = sourceMaterial.emissionRGB.f_green * emissionFactor;
+	material.emissiveBlue = sourceMaterial.emissionRGB.f_blue * emissionFactor;
+	const double sourceTransmission = std::clamp (sourceMaterial.transpPc / 100.0, 0.0, 1.0);
+	const bool isDeclaredGlass = sourceMaterial.mtype == APIMater_GlassID;
+	if (sourceTransmission > 0.0 || isDeclaredGlass) {
+		// Archicad's surface transparency describes light passing through the
+		// material. In glTF that is transmission, not coverage alpha. Keep the
+		// surface opaque to the rasterizer and let KHR_materials_transmission
+		// describe thin architectural glass. No volume is emitted because the
+		// 3D API does not provide reliable pane thickness/closure information.
+		material.transmission = isDeclaredGlass ? std::max (sourceTransmission, 0.95) : sourceTransmission;
+		material.alpha = 1.0;
+		material.ior = 1.5;
+		const double phongExponent = std::max (0.0, sourceMaterial.shine / 100.0);
+		material.roughness = std::clamp (std::sqrt (2.0 / (phongExponent + 2.0)), 0.04, 1.0);
+	}
 	material.texture.xSize = sourceMaterial.texture.xSize;
 	material.texture.ySize = sourceMaterial.texture.ySize;
 	material.texture.rotationDegrees = sourceMaterial.texture.rotAng;

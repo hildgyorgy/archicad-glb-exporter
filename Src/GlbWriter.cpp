@@ -70,8 +70,14 @@ struct PackedGroup {
 };
 
 struct EmbeddedImage {
-	std::size_t materialIndex;
 	std::size_t bufferView;
+	const std::vector<char>* data;
+	std::string mimeType;
+};
+
+struct TextureBinding {
+	std::size_t materialIndex;
+	std::size_t imageIndex;
 };
 
 std::uint32_t CheckedU32 (std::size_t value, const char* description)
@@ -256,33 +262,51 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	}
 
 	std::vector<EmbeddedImage> embeddedImages;
-	std::vector<int> materialImageIndices (model.materials.size (), -1);
+	std::vector<TextureBinding> textureBindings;
 	std::vector<int> materialTextureIndices (model.materials.size (), -1);
-	int textureCount = 0;
-	for (std::size_t i = 0; i < model.materials.size (); ++i) {
-		if (model.materials[i].imageData.empty ())
-			continue;
-		auto existingImage =
-		    std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
-			    const Material& existingMaterial = model.materials[image.materialIndex];
-			    return existingMaterial.imageMimeType == model.materials[i].imageMimeType &&
-				       existingMaterial.imageData == model.materials[i].imageData;
-		    });
+	std::vector<int> materialNormalTextureIndices (model.materials.size (), -1);
+	std::vector<int> materialMetallicRoughnessTextureIndices (model.materials.size (), -1);
+	std::vector<int> materialOcclusionTextureIndices (model.materials.size (), -1);
+	std::vector<int> materialEmissiveTextureIndices (model.materials.size (), -1);
+	auto addTexture = [&] (std::size_t materialIndex, const std::vector<char>& data, const std::string& mimeType) {
+		if (data.empty ())
+			return -1;
+		auto existingImage = std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
+			return image.mimeType == mimeType && *image.data == data;
+		});
+		std::size_t imageIndex = 0;
 		if (existingImage == embeddedImages.end ()) {
-			const int imageIndex = static_cast<int> (embeddedImages.size ());
-			embeddedImages.push_back ({i, layout.AddImageBufferView (model.materials[i].imageData)});
-			materialImageIndices[i] = imageIndex;
+			imageIndex = embeddedImages.size ();
+			embeddedImages.push_back ({layout.AddImageBufferView (data), &data, mimeType});
 		} else {
-			materialImageIndices[i] = static_cast<int> (std::distance (embeddedImages.begin (), existingImage));
+			imageIndex = static_cast<std::size_t> (std::distance (embeddedImages.begin (), existingImage));
 		}
-		materialTextureIndices[i] = textureCount++;
+		const int textureIndex = static_cast<int> (textureBindings.size ());
+		textureBindings.push_back ({materialIndex, imageIndex});
+		return textureIndex;
+	};
+	for (std::size_t i = 0; i < model.materials.size (); ++i) {
+		const Material& material = model.materials[i];
+		materialTextureIndices[i] = addTexture (i, material.imageData, material.imageMimeType);
+		materialNormalTextureIndices[i] = addTexture (i, material.normalTexture.data, material.normalTexture.mimeType);
+		materialMetallicRoughnessTextureIndices[i] =
+		    addTexture (i, material.metallicRoughnessTexture.data, material.metallicRoughnessTexture.mimeType);
+		materialOcclusionTextureIndices[i] =
+		    addTexture (i, material.occlusionTexture.data, material.occlusionTexture.mimeType);
+		materialEmissiveTextureIndices[i] = addTexture (i, material.emissiveTexture.data, material.emissiveTexture.mimeType);
 	}
 	while (layout.binary.size () % 4 != 0)
 		layout.binary.push_back (0);
+	const bool usesTransmission = std::any_of (model.materials.begin (), model.materials.end (), [] (const Material& material) {
+		return material.transmission > 0.0;
+	});
 
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
-	     << EscapeJsonString (generator) << "\"}," << "\"scene\":0,\"scenes\":[{\"nodes\":[";
+	     << EscapeJsonString (generator) << "\"},";
+	if (usesTransmission)
+		json << "\"extensionsUsed\":[\"KHR_materials_transmission\",\"KHR_materials_ior\"],";
+	json << "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < model.groups.size (); ++i) {
 		if (i > 0)
 			json << ',';
@@ -321,37 +345,58 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		const double blue = hasBaseColorTexture ? 1.0 : material.blue;
 		json << "{\"name\":\"" << EscapeJsonString (material.name)
 		     << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[" << red << ',' << green << ',' << blue << ','
-		     << material.alpha << "],\"metallicFactor\":0,\"roughnessFactor\":1";
+		     << material.alpha << "],\"metallicFactor\":" << material.metallic
+		     << ",\"roughnessFactor\":" << material.roughness;
 		if (hasBaseColorTexture)
 			json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i] << '}';
+		if (materialMetallicRoughnessTextureIndices[i] >= 0)
+			json << ",\"metallicRoughnessTexture\":{\"index\":" << materialMetallicRoughnessTextureIndices[i] << '}';
 		json << '}';
+		if (materialNormalTextureIndices[i] >= 0)
+			json << ",\"normalTexture\":{\"index\":" << materialNormalTextureIndices[i] << '}';
+		if (materialOcclusionTextureIndices[i] >= 0)
+			json << ",\"occlusionTexture\":{\"index\":" << materialOcclusionTextureIndices[i] << '}';
+		if (materialEmissiveTextureIndices[i] >= 0) {
+			const bool hasEmissiveFactor =
+			    material.emissiveRed > 0.0 || material.emissiveGreen > 0.0 || material.emissiveBlue > 0.0;
+			json << ",\"emissiveTexture\":{\"index\":" << materialEmissiveTextureIndices[i] << "},\"emissiveFactor\":["
+			     << (hasEmissiveFactor ? material.emissiveRed : 1.0) << ','
+			     << (hasEmissiveFactor ? material.emissiveGreen : 1.0) << ','
+			     << (hasEmissiveFactor ? material.emissiveBlue : 1.0) << ']';
+		} else if (material.emissiveRed > 0.0 || material.emissiveGreen > 0.0 || material.emissiveBlue > 0.0) {
+			json << ",\"emissiveFactor\":[" << material.emissiveRed << ',' << material.emissiveGreen << ','
+			     << material.emissiveBlue << ']';
+		}
+		if (material.transmission > 0.0) {
+			json << ",\"extensions\":{\"KHR_materials_transmission\":{\"transmissionFactor\":"
+			     << material.transmission << "},\"KHR_materials_ior\":{\"ior\":" << material.ior << "}}";
+		}
 		if (material.alpha < 1.0)
 			json << ",\"alphaMode\":\"BLEND\"";
 		else if (material.alphaMask)
 			json << ",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.5";
-		json << ",\"doubleSided\":true}";
+		json << ",\"doubleSided\":true,\"extras\":{\"archicad\":{\"surfaceIndex\":" << material.sourceIndex
+		     << ",\"surfaceName\":\"" << EscapeJsonString (material.name) << "\",\"materialType\":"
+		     << material.sourceMaterialType << ",\"transparencyPercent\":" << material.sourceTransparencyPercent
+		     << ",\"specularPercent\":" << material.sourceSpecularPercent << ",\"shine\":" << material.sourceShine
+		     << ",\"emissionAttenuation\":" << material.sourceEmissionAttenuation
+		     << "}}}";
 	}
 	json << ']';
-	if (textureCount > 0) {
+	if (!textureBindings.empty ()) {
 		json << ",\"textures\":[";
-		int textureIndex = 0;
-		for (std::size_t i = 0; i < model.materials.size (); ++i) {
-			if (materialTextureIndices[i] < 0)
-				continue;
-			if (textureIndex > 0)
+		for (std::size_t i = 0; i < textureBindings.size (); ++i) {
+			if (i > 0)
 				json << ',';
-			json << "{\"source\":" << materialImageIndices[i] << ",\"sampler\":" << textureIndex << '}';
-			++textureIndex;
+			json << "{\"source\":" << textureBindings[i].imageIndex << ",\"sampler\":" << i << '}';
 		}
 		json << "],\"samplers\":[";
-		textureIndex = 0;
-		for (std::size_t i = 0; i < model.materials.size (); ++i) {
-			if (materialTextureIndices[i] < 0)
-				continue;
-			if (textureIndex++ > 0)
+		for (std::size_t i = 0; i < textureBindings.size (); ++i) {
+			if (i > 0)
 				json << ',';
-			json << "{\"wrapS\":" << (model.materials[i].texture.mirrorX ? Constant::MirroredRepeat : Constant::Repeat)
-			     << ",\"wrapT\":" << (model.materials[i].texture.mirrorY ? Constant::MirroredRepeat : Constant::Repeat)
+			const Material& material = model.materials[textureBindings[i].materialIndex];
+			json << "{\"wrapS\":" << (material.texture.mirrorX ? Constant::MirroredRepeat : Constant::Repeat)
+			     << ",\"wrapT\":" << (material.texture.mirrorY ? Constant::MirroredRepeat : Constant::Repeat)
 			     << '}';
 		}
 		json << "],\"images\":[";
@@ -360,7 +405,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 				json << ',';
 			const EmbeddedImage& image = embeddedImages[i];
 			json << "{\"bufferView\":" << image.bufferView << ",\"mimeType\":\""
-			     << EscapeJsonString (model.materials[image.materialIndex].imageMimeType) << "\"}";
+			     << EscapeJsonString (image.mimeType) << "\"}";
 		}
 		json << ']';
 	}

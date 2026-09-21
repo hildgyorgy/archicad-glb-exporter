@@ -80,42 +80,77 @@ def main() -> None:
     require(len(document["meshes"]) == 3, "expected three export-group meshes")
     require([mesh["name"] for mesh in document["meshes"]] == expected_group_names,
             "export-group mesh names changed")
-    require([len(mesh["primitives"]) for mesh in document["meshes"]] == [2, 1, 1],
+    require([len(mesh["primitives"]) for mesh in document["meshes"]] == [3, 2, 1],
             "materials were not retained as primitives inside groups")
-    require(len(accessors) == 16, "expected four accessors per primitive")
+    require(len(accessors) == 24, "expected four accessors per primitive")
     expected_positions = [
         [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
         [(0.0, 0.0, 1.0), (2.0, 0.0, 1.0), (0.0, 3.0, 1.0)],
+        [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
         [(-2.0, 1.0, 4.0), (1.0, 1.0, 4.0), (-2.0, 5.0, 4.0)],
+        [(-2.0, 1.0, 5.0), (1.0, 1.0, 5.0), (-2.0, 5.0, 5.0)],
         [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
     ]
     primitives = [primitive for mesh in document["meshes"] for primitive in mesh["primitives"]]
     for primitive_index, primitive in enumerate(primitives):
         referenced = list(primitive["attributes"].values()) + [primitive["indices"]]
         require(all(0 <= index < len(accessors) for index in referenced), "primitive references an invalid accessor")
-        require(primitive["material"] == [0, 1, 2, 0][primitive_index], "primitive references the wrong material")
+        require(primitive["material"] == [0, 1, 4, 2, 3, 0][primitive_index], "primitive references the wrong material")
         require(read_accessor(document, binary, primitive["attributes"]["POSITION"]) == expected_positions[primitive_index],
                 "position data changed")
         require(read_accessor(document, binary, primitive["indices"]) == [(0,), (1,), (2,)], "index data changed")
 
     materials = document["materials"]
-    require(materials[0]["alphaMode"] == "MASK", "masked material lost its alpha mode")
-    require(materials[0]["alphaCutoff"] == 0.5, "masked material lost its cutoff")
-    require(materials[1]["alphaMode"] == "BLEND", "transparent material lost its alpha mode")
-    require(materials[1]["pbrMetallicRoughness"]["baseColorFactor"] == [1.0, 1.0, 1.0, 0.5],
-            "textured material base colour or alpha changed")
-    require(materials[2]["name"] == "Solid \\ surface\nline", "material-name JSON escaping changed")
+    require(document["extensionsUsed"] == ["KHR_materials_transmission", "KHR_materials_ior"],
+            "physical glass extensions were not declared")
+    require("extensionsRequired" not in document, "optional physical-material extensions became mandatory")
+    require("alphaMode" not in materials[0], "opaque textured material unexpectedly gained an alpha mode")
+    require(materials[0]["pbrMetallicRoughness"]["baseColorTexture"] == {"index": 0},
+            "opaque base-colour texture was not retained")
+    require(materials[0]["normalTexture"] == {"index": 1}, "normal texture was not retained")
+    require(materials[0]["pbrMetallicRoughness"]["metallicRoughnessTexture"] == {"index": 2},
+            "packed metallic-roughness texture was not retained")
+    require(materials[0]["occlusionTexture"] == {"index": 3}, "occlusion texture was not retained")
+    require(materials[0]["emissiveTexture"] == {"index": 4}, "emissive texture was not retained")
+    require(materials[0]["emissiveFactor"] == [0.1, 0.2, 0.3], "emissive factor was not retained")
+    require(materials[1]["extensions"]["KHR_materials_transmission"]["transmissionFactor"] == 1.0,
+            "clear glass lost full transmission")
+    require(materials[1]["extensions"]["KHR_materials_ior"]["ior"] == 1.5,
+            "clear glass lost its IOR")
+    require("alphaMode" not in materials[1], "clear glass incorrectly uses coverage alpha")
+    require("KHR_materials_volume" not in materials[1].get("extensions", {}),
+            "thin glass unexpectedly gained a volume")
+    require(materials[2]["name"] == "Tinted rough glass", "material-name JSON escaping changed")
     require(materials[2]["pbrMetallicRoughness"]["baseColorFactor"] == [0.125, 0.25, 0.75, 1.0],
-            "untextured Archicad surface colour changed")
-    require("baseColorTexture" not in materials[2]["pbrMetallicRoughness"], "solid material unexpectedly gained a texture")
-    require("alphaMode" not in materials[2], "opaque solid material unexpectedly gained an alpha mode")
+            "tinted-glass colour changed")
+    require(materials[2]["pbrMetallicRoughness"]["roughnessFactor"] == 0.32,
+            "rough glass lost its roughness")
+    require(materials[2]["extensions"]["KHR_materials_transmission"]["transmissionFactor"] == 0.65,
+            "tinted glass lost partial transmission")
+    require("alphaMode" not in materials[2], "tinted glass incorrectly uses coverage alpha")
+    require(materials[2]["extras"]["archicad"] == {
+        "surfaceIndex": 13,
+        "surfaceName": "Tinted rough glass",
+        "materialType": 5,
+        "transparencyPercent": 65.0,
+        "specularPercent": 70.0,
+        "shine": 1800.0,
+        "emissionAttenuation": 0.0,
+    }, "Archicad source metadata was not retained")
+    require(materials[3]["alphaMode"] == "MASK", "alpha-cutout plant lost its alpha mode")
+    require(materials[3]["alphaCutoff"] == 0.5, "alpha-cutout plant lost its cutoff")
+    require("extensions" not in materials[3], "alpha-cutout plant was mistaken for transmission")
+    require(materials[4]["alphaMode"] == "BLEND", "coverage-alpha material lost its alpha mode")
+    require(materials[4]["pbrMetallicRoughness"]["baseColorFactor"] == [1.0, 1.0, 1.0, 0.5],
+            "coverage-alpha material changed")
 
-    require(len(document["images"]) == 1, "identical embedded images were not deduplicated")
-    require(len(document["textures"]) == 2, "expected one texture binding per textured material")
-    require(document["textures"][0]["source"] == document["textures"][1]["source"] == 0,
-            "deduplicated textures do not share their image")
-    require(document["samplers"][0] == {"wrapS": 33648, "wrapT": 10497}, "mirror-X sampler changed")
-    require(document["samplers"][1] == {"wrapS": 10497, "wrapT": 33648}, "mirror-Y sampler changed")
+    require(len(document["images"]) == 4, "embedded channel images were not deduplicated")
+    require(len(document["textures"]) == 7, "expected one texture binding per material channel")
+    require([texture["source"] for texture in document["textures"]] == [0, 1, 2, 2, 3, 0, 0],
+            "texture channels do not reference the expected deduplicated images")
+    require(document["samplers"][0] == {"wrapS": 10497, "wrapT": 10497}, "repeat sampler changed")
+    require(document["samplers"][5] == {"wrapS": 33648, "wrapT": 10497}, "mirror-X sampler changed")
+    require(document["samplers"][6] == {"wrapS": 10497, "wrapT": 33648}, "mirror-Y sampler changed")
 
     image_view = views[document["images"][0]["bufferView"]]
     embedded_image = binary[image_view["byteOffset"]:image_view["byteOffset"] + image_view["byteLength"]]

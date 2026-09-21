@@ -24,35 +24,71 @@ int main (int argumentCount, char** arguments)
 	DropView::Glb::Model model;
 	model.positions = {{0.0f, 0.0f, 0.0f},  {2.0f, 0.0f, 0.0f}, {0.0f, 3.0f, 0.0f},
 	                   {0.0f, 0.0f, 1.0f},  {2.0f, 0.0f, 1.0f}, {0.0f, 3.0f, 1.0f},
-	                   {-2.0f, 1.0f, 4.0f}, {1.0f, 1.0f, 4.0f}, {-2.0f, 5.0f, 4.0f}};
-	model.normals.assign (9, {0.0f, 0.0f, 1.0f});
+	                   {-2.0f, 1.0f, 4.0f}, {1.0f, 1.0f, 4.0f}, {-2.0f, 5.0f, 4.0f},
+	                   {-2.0f, 1.0f, 5.0f}, {1.0f, 1.0f, 5.0f}, {-2.0f, 5.0f, 5.0f}};
+	model.normals.assign (12, {0.0f, 0.0f, 1.0f});
 	model.textureCoordinates = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
-	model.textureCoordinates.resize (9, {0.0f, 0.0f});
+	model.textureCoordinates.resize (12, {0.0f, 0.0f});
 
 	const std::vector<char> sharedImage {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n', 't', 'e', 's', 't'};
-	DropView::Glb::Material masked;
-	masked.name = "Masked \"surface\"";
-	masked.alphaMask = true;
-	masked.texture.mirrorX = true;
-	masked.imageData = sharedImage;
-	masked.imageMimeType = "image/png";
+	const std::vector<char> normalImage {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n', 'n'};
+	const std::vector<char> ormImage {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n', 'o'};
+	const std::vector<char> emissiveImage {'\x89', 'P', 'N', 'G', '\r', '\n', '\x1a', '\n', 'e'};
+	DropView::Glb::Material opaqueTextured;
+	opaqueTextured.sourceIndex = 11;
+	opaqueTextured.name = "Opaque textured surface";
+	opaqueTextured.imageData = sharedImage;
+	opaqueTextured.imageMimeType = "image/png";
+	opaqueTextured.normalTexture = {normalImage, "image/png"};
+	opaqueTextured.metallicRoughnessTexture = {ormImage, "image/png"};
+	opaqueTextured.occlusionTexture = {ormImage, "image/png"};
+	opaqueTextured.emissiveTexture = {emissiveImage, "image/png"};
+	opaqueTextured.emissiveRed = 0.1;
+	opaqueTextured.emissiveGreen = 0.2;
+	opaqueTextured.emissiveBlue = 0.3;
 
-	DropView::Glb::Material blended;
-	blended.name = "Blended surface";
-	blended.alpha = 0.5;
-	blended.texture.mirrorY = true;
-	blended.imageData = sharedImage;
-	blended.imageMimeType = "image/png";
+	DropView::Glb::Material clearGlass;
+	clearGlass.sourceIndex = 12;
+	clearGlass.name = "Clear glass";
+	clearGlass.sourceMaterialType = 5;
+	clearGlass.sourceTransparencyPercent = 100.0;
+	clearGlass.sourceSpecularPercent = 100.0;
+	clearGlass.sourceShine = 10000.0;
+	clearGlass.roughness = 0.04;
+	clearGlass.transmission = 1.0;
 
-	DropView::Glb::Material solid;
-	solid.name = "Solid \\ surface\nline";
-	solid.red = 0.125;
-	solid.green = 0.25;
-	solid.blue = 0.75;
+	DropView::Glb::Material tintedGlass;
+	tintedGlass.sourceIndex = 13;
+	tintedGlass.name = "Tinted rough glass";
+	tintedGlass.sourceMaterialType = 5;
+	tintedGlass.sourceTransparencyPercent = 65.0;
+	tintedGlass.sourceSpecularPercent = 70.0;
+	tintedGlass.sourceShine = 1800.0;
+	tintedGlass.red = 0.125;
+	tintedGlass.green = 0.25;
+	tintedGlass.blue = 0.75;
+	tintedGlass.roughness = 0.32;
+	tintedGlass.transmission = 0.65;
 
-	model.materials = {masked, blended, solid};
-	model.groups = {{"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}}},
-	                {"layer:2", "Layer: Site", {{2, {6, 7, 8}}}},
+	DropView::Glb::Material plant;
+	plant.sourceIndex = 14;
+	plant.name = "Leaf \"cutout\"";
+	plant.alphaMask = true;
+	plant.texture.mirrorX = true;
+	plant.imageData = sharedImage;
+	plant.imageMimeType = "image/png";
+
+	DropView::Glb::Material coverageBlend;
+	coverageBlend.sourceIndex = 15;
+	coverageBlend.name = "Coverage blend";
+	coverageBlend.alpha = 0.5;
+	coverageBlend.texture.mirrorY = true;
+	coverageBlend.imageData = sharedImage;
+	coverageBlend.imageMimeType = "image/png";
+
+	model.materials = {opaqueTextured, clearGlass, tintedGlass, plant, coverageBlend};
+	model.groups = {{"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}, {4, {0, 1, 2}}}},
+	                {"layer:2", "Layer: Site", {{2, {6, 7, 8}}, {3, {9, 10, 11}}}},
 	                {"layer:3", "Layer: Reused material", {{0, {0, 1, 2}}}}};
 	const std::vector<char> glb = DropView::Glb::BuildBinary (model, "Drop & View \"writer\"\ntest");
 
