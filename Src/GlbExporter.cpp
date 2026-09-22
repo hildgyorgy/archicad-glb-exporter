@@ -45,21 +45,22 @@ enum class GroupingMode { Surface, Layer, ElementType };
 struct ClearGlassCandidate {
 	Int32 sourceIndex = 0;
 	std::string name;
+	std::string details;
 	bool selected = false;
 };
 
 class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver, public DG::ListBoxObserver {
 public:
 	explicit ExportOptionsDialog (std::vector<ClearGlassCandidate> candidates)
-	    : DG::ModalDialog (DG::NativePoint (), 470, 326, GS::Guid ()),
-	      groupingPrompt (GetReference (), DG::Rect (16, 16, 454, 34)),
-	      groupingMode (GetReference (), DG::Rect (16, 38, 454, 60), 8, 4),
-	      glassHeading (GetReference (), DG::Rect (16, 78, 454, 98)),
-	      glassDescription (GetReference (), DG::Rect (16, 100, 454, 138)),
-	      glassList (GetReference (), DG::Rect (16, 142, 454, 274), DG::ListBox::VScroll, DG::ListBox::PartialItems,
+	    : DG::ModalDialog (DG::NativePoint (), 760, 326, GS::Guid ()),
+	      groupingPrompt (GetReference (), DG::Rect (16, 16, 744, 34)),
+	      groupingMode (GetReference (), DG::Rect (16, 38, 744, 60), 8, 4),
+	      glassHeading (GetReference (), DG::Rect (16, 78, 744, 98)),
+	      glassDescription (GetReference (), DG::Rect (16, 100, 744, 138)),
+	      glassList (GetReference (), DG::Rect (16, 142, 744, 274), DG::ListBox::VScroll, DG::ListBox::PartialItems,
 	                 DG::ListBox::NoHeader, 0, DG::ListBox::Frame),
-	      cancelButton (GetReference (), DG::Rect (302, 286, 374, 310)),
-	      okButton (GetReference (), DG::Rect (382, 286, 454, 310)), clearGlassCandidates (std::move (candidates))
+	      cancelButton (GetReference (), DG::Rect (592, 286, 664, 310)),
+	      okButton (GetReference (), DG::Rect (672, 286, 744, 310)), clearGlassCandidates (std::move (candidates))
 	{
 		SetTitle ("GLB export settings");
 		groupingPrompt.SetText ("Group exported model by:");
@@ -74,17 +75,18 @@ public:
 		    "will retain their original Archicad appearance.");
 		glassList.SetTabFieldCount (2);
 		glassList.SetTabFieldProperties (1, 0, 28, DG::ListBox::Center, DG::ListBox::NoTruncate);
-		glassList.SetTabFieldProperties (2, 30, 424, DG::ListBox::Left, DG::ListBox::EndTruncate);
+		glassList.SetTabFieldProperties (2, 30, 714, DG::ListBox::Left, DG::ListBox::EndTruncate);
 		glassList.SetItemHeight (22);
 		for (std::size_t index = 0; index < clearGlassCandidates.size (); ++index) {
 			glassList.AppendItem ();
 			const short item = static_cast<short> (index + 1);
-			glassList.SetTabItemText (item, 2, clearGlassCandidates[index].name.c_str ());
+			glassList.SetTabItemText (item, 2, clearGlassCandidates[index].details.c_str ());
 			UpdateGlassCheckIcon (item);
 		}
 		if (clearGlassCandidates.empty ()) {
 			glassList.AppendItem ();
-			glassList.SetTabItemText (1, 2, "No likely clear-glass surfaces were found in the active 3D view.");
+			glassList.SetTabItemText (
+			    1, 2, "No non-cutout surfaces with at least 50% transparency were found in the active 3D view.");
 			glassList.DisableItem (1);
 		}
 		cancelButton.SetText ("Cancel");
@@ -553,6 +555,41 @@ DropView::MaterialConversion::ArchicadMaterialProperties GetMaterialProperties (
 	};
 }
 
+const char* GetMaterialTypeName (API_MaterTypeID type)
+{
+	switch (type) {
+		case APIMater_GeneralID:
+			return "General";
+		case APIMater_SimpleID:
+			return "Simple";
+		case APIMater_MatteID:
+			return "Matte";
+		case APIMater_MetalID:
+			return "Metal";
+		case APIMater_PlasticID:
+			return "Plastic";
+		case APIMater_GlassID:
+			return "Glass";
+		case APIMater_GlowingID:
+			return "Glowing";
+		case APIMater_ConstID:
+			return "Constant";
+		default:
+			return "Unknown";
+	}
+}
+
+std::string GetClearGlassCandidateDetails (const std::string& name, const API_MaterialType& material,
+                                           const DropView::MaterialConversion::ArchicadMaterialProperties& properties)
+{
+	return name + "  |  Type: " + GetMaterialTypeName (material.mtype) +
+	       "  |  Transparency: " + std::to_string (static_cast<int> (std::lround (properties.transparencyPercent))) +
+	       "%  |  Specular: " + std::to_string (static_cast<int> (std::lround (properties.specularPercent))) +
+	       "%  |  Shine: " + std::to_string (static_cast<int> (std::lround (properties.shine))) +
+	       "  |  Emission: " + std::to_string (static_cast<int> (std::lround (properties.emissionAttenuation))) +
+	       "%  |  Alpha cutout: " + (properties.usesAlphaCutout ? "yes" : "no");
+}
+
 std::vector<ClearGlassCandidate> CollectClearGlassCandidates ()
 {
 	Int32 visibleBodyCount = 0;
@@ -588,8 +625,9 @@ std::vector<ClearGlassCandidate> CollectClearGlassCandidates ()
 		std::string name = sourceMaterial.head.name;
 		if (name.empty ())
 			name = "Archicad Surface " + std::to_string (sourceIndex);
-		candidates.push_back (
-		    {sourceIndex, std::move (name), DropView::MaterialConversion::IsHighConfidenceClearGlass (properties)});
+		const std::string details = GetClearGlassCandidateDetails (name, sourceMaterial, properties);
+		candidates.push_back ({sourceIndex, std::move (name), details,
+		                       DropView::MaterialConversion::IsHighConfidenceClearGlass (properties)});
 	}
 	std::sort (candidates.begin (), candidates.end (),
 	           [] (const auto& left, const auto& right) { return left.name < right.name; });

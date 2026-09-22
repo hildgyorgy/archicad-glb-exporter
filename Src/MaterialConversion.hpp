@@ -18,14 +18,13 @@ struct ArchicadMaterialProperties {
 
 inline bool IsClearGlassCandidate (const ArchicadMaterialProperties& source)
 {
-	return source.declaredGlass && source.transparencyPercent >= 50.0 && source.emissionAttenuation <= 1.0 &&
-	       !source.usesAlphaCutout;
+	return source.transparencyPercent >= 50.0 && !source.usesAlphaCutout;
 }
 
 inline bool IsHighConfidenceClearGlass (const ArchicadMaterialProperties& source)
 {
-	return IsClearGlassCandidate (source) && source.transparencyPercent >= 65.0 && source.specularPercent >= 50.0 &&
-	       source.shine >= 1000.0;
+	return IsClearGlassCandidate (source) && source.declaredGlass && source.transparencyPercent >= 65.0 &&
+	       source.specularPercent >= 50.0 && source.shine >= 1000.0 && source.emissionAttenuation <= 1.0;
 }
 
 inline void ApplyTransparency (const ArchicadMaterialProperties& source, bool exportAsClearGlass,

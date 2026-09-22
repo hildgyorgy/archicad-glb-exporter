@@ -54,9 +54,13 @@ int main ()
 	const ArchicadMaterialProperties leafCutout {true, 75.0, 80.0, 8000.0, 0.0, true};
 	Require (!IsClearGlassCandidate (leafCutout), "alpha-cutout texture was offered as clear glass");
 	const ArchicadMaterialProperties lampGlass {true, 75.0, 80.0, 8000.0, 40.0, false};
-	Require (!IsClearGlassCandidate (lampGlass), "emissive lamp glass was offered as clear glass");
+	Require (IsClearGlassCandidate (lampGlass), "transparent lamp glass was missing from the user-selectable list");
+	Require (!IsHighConfidenceClearGlass (lampGlass), "emissive lamp glass was preselected");
 	const ArchicadMaterialProperties genericTransparentSurface {false, 90.0, 90.0, 9000.0, 0.0, false};
-	Require (!IsClearGlassCandidate (genericTransparentSurface),
-	         "generic transparency was mistaken for declared glass");
+	Require (IsClearGlassCandidate (genericTransparentSurface), "generic transparency was missing from the list");
+	Require (!IsHighConfidenceClearGlass (genericTransparentSurface),
+	         "generic transparency was preselected without an Archicad glass declaration");
+	const ArchicadMaterialProperties lowTransparencySurface {true, 49.0, 90.0, 9000.0, 0.0, false};
+	Require (!IsClearGlassCandidate (lowTransparencySurface), "surface below the 50 percent threshold was offered");
 	return 0;
 }
