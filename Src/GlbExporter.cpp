@@ -13,6 +13,7 @@
 #include "FileTypeManager.hpp"
 #include "GlbExporter.hpp"
 #include "GlbWriter.hpp"
+#include "MaterialConversion.hpp"
 #include "PolygonTriangulation.hpp"
 #include "SurfaceNormals.hpp"
 
@@ -23,6 +24,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <set>
 #include <vector>
 
 #ifndef DROPVIEW_VERSION
@@ -40,28 +42,58 @@ using GlbGeometry::CornerNormals;
 
 enum class GroupingMode { Surface, Layer, ElementType };
 
-class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver {
+struct ClearGlassCandidate {
+	Int32 sourceIndex = 0;
+	std::string name;
+	bool selected = false;
+};
+
+class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver, public DG::ListBoxObserver {
 public:
-	ExportOptionsDialog ()
-	    : DG::ModalDialog (DG::NativePoint (), 340, 118, GS::Guid ()),
-	      prompt (GetReference (), DG::Rect (16, 16, 324, 34)),
-	      groupingMode (GetReference (), DG::Rect (16, 38, 324, 60), 8, 4),
-	      cancelButton (GetReference (), DG::Rect (172, 78, 244, 102)),
-	      okButton (GetReference (), DG::Rect (252, 78, 324, 102))
+	explicit ExportOptionsDialog (std::vector<ClearGlassCandidate> candidates)
+	    : DG::ModalDialog (DG::NativePoint (), 470, 326, GS::Guid ()),
+	      groupingPrompt (GetReference (), DG::Rect (16, 16, 454, 34)),
+	      groupingMode (GetReference (), DG::Rect (16, 38, 454, 60), 8, 4),
+	      glassHeading (GetReference (), DG::Rect (16, 78, 454, 98)),
+	      glassDescription (GetReference (), DG::Rect (16, 100, 454, 138)),
+	      glassList (GetReference (), DG::Rect (16, 142, 454, 274), DG::ListBox::VScroll, DG::ListBox::PartialItems,
+	                 DG::ListBox::NoHeader, 0, DG::ListBox::Frame),
+	      cancelButton (GetReference (), DG::Rect (302, 286, 374, 310)),
+	      okButton (GetReference (), DG::Rect (382, 286, 454, 310)), clearGlassCandidates (std::move (candidates))
 	{
 		SetTitle ("GLB export settings");
-		prompt.SetText ("Group exported model by:");
+		groupingPrompt.SetText ("Group exported model by:");
 		for (const char* item : {"Surface / Texture", "Layer", "Element type"}) {
 			groupingMode.AppendItem ();
 			groupingMode.SetItemText (groupingMode.GetItemCount (), item);
 		}
 		groupingMode.SelectItem (1);
+		glassHeading.SetText ("Clear glass surfaces");
+		glassDescription.SetText (
+		    "Select the surfaces to export as clear, physically transparent glass. Other transparent surfaces "
+		    "will retain their original Archicad appearance.");
+		glassList.SetTabFieldCount (2);
+		glassList.SetTabFieldProperties (1, 0, 28, DG::ListBox::Center, DG::ListBox::NoTruncate);
+		glassList.SetTabFieldProperties (2, 30, 424, DG::ListBox::Left, DG::ListBox::EndTruncate);
+		glassList.SetItemHeight (22);
+		for (std::size_t index = 0; index < clearGlassCandidates.size (); ++index) {
+			glassList.AppendItem ();
+			const short item = static_cast<short> (index + 1);
+			glassList.SetTabItemText (item, 2, clearGlassCandidates[index].name.c_str ());
+			UpdateGlassCheckIcon (item);
+		}
+		if (clearGlassCandidates.empty ()) {
+			glassList.AppendItem ();
+			glassList.SetTabItemText (1, 2, "No likely clear-glass surfaces were found in the active 3D view.");
+			glassList.DisableItem (1);
+		}
 		cancelButton.SetText ("Cancel");
 		cancelButton.SetAsCancel ();
 		okButton.SetText ("Export");
 		okButton.SetAsDefault ();
 		cancelButton.Attach (*this);
 		okButton.Attach (*this);
+		glassList.Attach (*this);
 		ShowItems ();
 	}
 
@@ -69,6 +101,7 @@ public:
 	{
 		cancelButton.Detach (*this);
 		okButton.Detach (*this);
+		glassList.Detach (*this);
 	}
 
 	GroupingMode GetGroupingMode () const
@@ -83,16 +116,49 @@ public:
 		}
 	}
 
+	std::set<Int32> GetClearGlassSurfaceIndices () const
+	{
+		std::set<Int32> indices;
+		for (const ClearGlassCandidate& candidate : clearGlassCandidates)
+			if (candidate.selected)
+				indices.insert (candidate.sourceIndex);
+		return indices;
+	}
+
 private:
 	void ButtonClicked (const DG::ButtonClickEvent& event) override
 	{
 		PostCloseRequest (event.GetSource () == &okButton ? Accept : Cancel);
 	}
 
-	DG::LeftText prompt;
+	void ListBoxClicked (const DG::ListBoxClickEvent& event) override
+	{
+		const short item = event.GetListItem ();
+		if (event.GetSource () != &glassList || item <= 0 ||
+		    static_cast<std::size_t> (item) > clearGlassCandidates.size ())
+			return;
+		ClearGlassCandidate& candidate = clearGlassCandidates[static_cast<std::size_t> (item - 1)];
+		candidate.selected = !candidate.selected;
+		UpdateGlassCheckIcon (item);
+		glassList.DeselectItem (item);
+	}
+
+	void UpdateGlassCheckIcon (short item)
+	{
+		const bool selected = clearGlassCandidates[static_cast<std::size_t> (item - 1)].selected;
+		glassList.SetTabItemIcon (
+		    item, 1,
+		    DG::Icon (static_cast<GSResModule> (0), selected ? DG::ListBox::CheckedIcon : DG::ListBox::UncheckedIcon));
+	}
+
+	DG::LeftText groupingPrompt;
 	DG::PopUp groupingMode;
+	DG::LeftText glassHeading;
+	DG::LeftText glassDescription;
+	DG::SingleSelListBox glassList;
 	DG::Button cancelButton;
 	DG::Button okButton;
+	std::vector<ClearGlassCandidate> clearGlassCandidates;
 };
 
 struct ExportStatistics {
@@ -475,7 +541,62 @@ std::vector<VisibleBodyGroup> GetVisibleBodyGroups (Int32 visibleBodyCount)
 	return groups;
 }
 
-Material ReadMaterial (Int32 sourceIndex)
+DropView::MaterialConversion::ArchicadMaterialProperties GetMaterialProperties (const API_MaterialType& material)
+{
+	return {
+	    material.mtype == APIMater_GlassID,
+	    static_cast<double> (material.transpPc),
+	    static_cast<double> (material.specularPc),
+	    static_cast<double> (material.shine),
+	    static_cast<double> (material.emissionAtt),
+	    (material.texture.status & APITxtr_UseAlpha) != 0 && (material.texture.status & APITxtr_TransPattern) != 0,
+	};
+}
+
+std::vector<ClearGlassCandidate> CollectClearGlassCandidates ()
+{
+	Int32 visibleBodyCount = 0;
+	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
+		throw std::runtime_error ("Cannot read the active 3D model");
+
+	std::set<Int32> visibleMaterialIndices;
+	API_Component3D component {};
+	for (Int32 bodyIndex = 1; bodyIndex <= visibleBodyCount; ++bodyIndex) {
+		component.header.typeID = API_BodyID;
+		component.header.index = bodyIndex;
+		if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
+			continue;
+		const Int32 polygonCount = component.body.nPgon;
+		for (Int32 polygonIndex = 1; polygonIndex <= polygonCount; ++polygonIndex) {
+			component.header.typeID = API_PgonID;
+			component.header.index = polygonIndex;
+			if (ACAPI_ModelAccess_GetComponent (&component) == NoError && (component.pgon.status & APIPgon_Invis) == 0)
+				visibleMaterialIndices.insert (component.pgon.iumat);
+		}
+	}
+
+	std::vector<ClearGlassCandidate> candidates;
+	for (Int32 sourceIndex : visibleMaterialIndices) {
+		component.header.typeID = API_UmatID;
+		component.header.index = sourceIndex;
+		if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
+			continue;
+		const API_MaterialType& sourceMaterial = component.umat.mater;
+		const auto properties = GetMaterialProperties (sourceMaterial);
+		if (!DropView::MaterialConversion::IsClearGlassCandidate (properties))
+			continue;
+		std::string name = sourceMaterial.head.name;
+		if (name.empty ())
+			name = "Archicad Surface " + std::to_string (sourceIndex);
+		candidates.push_back (
+		    {sourceIndex, std::move (name), DropView::MaterialConversion::IsHighConfidenceClearGlass (properties)});
+	}
+	std::sort (candidates.begin (), candidates.end (),
+	           [] (const auto& left, const auto& right) { return left.name < right.name; });
+	return candidates;
+}
+
+Material ReadMaterial (Int32 sourceIndex, bool exportAsClearGlass)
 {
 	API_Component3D materialComponent {};
 	materialComponent.header.typeID = API_UmatID;
@@ -501,20 +622,6 @@ Material ReadMaterial (Int32 sourceIndex)
 	material.emissiveRed = sourceMaterial.emissionRGB.f_red * emissionFactor;
 	material.emissiveGreen = sourceMaterial.emissionRGB.f_green * emissionFactor;
 	material.emissiveBlue = sourceMaterial.emissionRGB.f_blue * emissionFactor;
-	const double sourceTransmission = std::clamp (sourceMaterial.transpPc / 100.0, 0.0, 1.0);
-	const bool isDeclaredGlass = sourceMaterial.mtype == APIMater_GlassID;
-	if (sourceTransmission > 0.0 || isDeclaredGlass) {
-		// Archicad's surface transparency describes light passing through the
-		// material. In glTF that is transmission, not coverage alpha. Keep the
-		// surface opaque to the rasterizer and let KHR_materials_transmission
-		// describe thin architectural glass. No volume is emitted because the
-		// 3D API does not provide reliable pane thickness/closure information.
-		material.transmission = isDeclaredGlass ? std::max (sourceTransmission, 0.95) : sourceTransmission;
-		material.alpha = 1.0;
-		material.ior = 1.5;
-		const double phongExponent = std::max (0.0, sourceMaterial.shine / 100.0);
-		material.roughness = std::clamp (std::sqrt (2.0 / (phongExponent + 2.0)), 0.04, 1.0);
-	}
 	material.texture.xSize = sourceMaterial.texture.xSize;
 	material.texture.ySize = sourceMaterial.texture.ySize;
 	material.texture.rotationDegrees = sourceMaterial.texture.rotAng;
@@ -522,19 +629,22 @@ Material ReadMaterial (Int32 sourceIndex)
 	material.texture.mirrorY = (sourceMaterial.texture.status & APITxtr_MirrorY) != 0;
 	material.texture.useAlpha = (sourceMaterial.texture.status & APITxtr_UseAlpha) != 0;
 	material.texture.transparencyPattern = (sourceMaterial.texture.status & APITxtr_TransPattern) != 0;
+	DropView::MaterialConversion::ApplyTransparency (GetMaterialProperties (sourceMaterial), exportAsClearGlass,
+	                                                 material);
 	std::unique_ptr<IO::Location> textureLocation (sourceMaterial.texture.fileLoc);
 	LoadTextureImage (textureLocation.get (), material);
 	return material;
 }
 
-std::size_t GetOrCreateMaterial (Int32 sourceIndex, Model& model, MaterialIndexMap& materialIndices)
+std::size_t GetOrCreateMaterial (Int32 sourceIndex, const std::set<Int32>& clearGlassSurfaceIndices, Model& model,
+                                 MaterialIndexMap& materialIndices)
 {
 	const auto existingMaterial = materialIndices.find (sourceIndex);
 	if (existingMaterial != materialIndices.end ())
 		return existingMaterial->second;
 
 	const std::size_t materialIndex = model.materials.size ();
-	model.materials.push_back (ReadMaterial (sourceIndex));
+	model.materials.push_back (ReadMaterial (sourceIndex, clearGlassSurfaceIndices.contains (sourceIndex)));
 	materialIndices[sourceIndex] = materialIndex;
 	return materialIndex;
 }
@@ -590,7 +700,8 @@ Primitive& GetOrCreatePrimitive (DropView::Glb::Group& group, std::size_t materi
 void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 bodyVertexCount,
                      const API_Tranmat& transform, Int32 elementIndex, Int32 localBodyIndex, Model& model,
                      MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices, GroupingMode groupingMode,
-                     const GroupDescriptor& elementGroup, const CornerNormals& cornerNormals)
+                     const std::set<Int32>& clearGlassSurfaceIndices, const GroupDescriptor& elementGroup,
+                     const CornerNormals& cornerNormals)
 {
 	const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 	if (polygonContours.empty ())
@@ -627,7 +738,8 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 	if (existingVertexCount > maxVertexCount ||
 	    static_cast<std::uint64_t> (vertices.size ()) > maxVertexCount - existingVertexCount)
 		throw std::length_error ("Vertex count exceeds the GLB 32-bit index limit");
-	const std::size_t materialIndex = GetOrCreateMaterial (polygon.iumat, model, materialIndices);
+	const std::size_t materialIndex =
+	    GetOrCreateMaterial (polygon.iumat, clearGlassSurfaceIndices, model, materialIndices);
 	const Material& material = model.materials[materialIndex];
 	const GroupDescriptor groupDescriptor =
 	    groupingMode == GroupingMode::Surface
@@ -673,7 +785,8 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 }
 
 void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices,
-                  GroupingMode groupingMode, const GroupDescriptor& elementGroup, ExportStatistics& statistics,
+                  GroupingMode groupingMode, const GroupDescriptor& elementGroup,
+                  const std::set<Int32>& clearGlassSurfaceIndices, ExportStatistics& statistics,
                   Int32& skippedPolygonCount, std::string& lastPolygonError)
 {
 	API_Component3D component {};
@@ -702,7 +815,8 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 		}
 		try {
 			CollectPolygon (polygon, polygonIndex, bodyVertexCount, transform, elementIndex, localBodyIndex, model,
-			                materialIndices, groupIndices, groupingMode, elementGroup, cornerNormals);
+			                materialIndices, groupIndices, groupingMode, clearGlassSurfaceIndices, elementGroup,
+			                cornerNormals);
 		} catch (const GlbGeometry::DegeneratePolygon&) {
 			// GDL objects commonly contain intentional zero-area helper polygons.
 			// They have no visible surface and can be omitted without data loss.
@@ -723,7 +837,8 @@ std::size_t CountTriangles (const Model& model)
 }
 
 void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, MaterialIndexMap& materialIndices,
-                     GroupIndexMap& groupIndices, GroupingMode groupingMode, ExportStatistics& statistics)
+                     GroupIndexMap& groupIndices, GroupingMode groupingMode,
+                     const std::set<Int32>& clearGlassSurfaceIndices, ExportStatistics& statistics)
 {
 	const API_Elem_Head& element = visibleBodyGroup.parent;
 	const char* typeName = GetElementTypeName (element.type);
@@ -735,8 +850,8 @@ void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, Mat
 		std::string lastPolygonError;
 		const std::size_t trianglesBefore = CountTriangles (model);
 		for (Int32 bodyIndex : visibleBodyGroup.bodyIndices)
-			CollectBody (bodyIndex, model, materialIndices, groupIndices, groupingMode, elementGroup, statistics,
-			             skippedPolygonCount, lastPolygonError);
+			CollectBody (bodyIndex, model, materialIndices, groupIndices, groupingMode, elementGroup,
+			             clearGlassSurfaceIndices, statistics, skippedPolygonCount, lastPolygonError);
 		if (CountTriangles (model) == trianglesBefore)
 			++statistics.emptyElementCount;
 		if (skippedPolygonCount > 0) {
@@ -751,11 +866,12 @@ void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, Mat
 		++statistics.failedElementCount;
 		statistics.elementReport +=
 		    GS::UniString::Printf ("\nERROR – %s, GUID: %s: %s. The element was skipped and export continued.",
-			                       typeName, elementGuid.ToCStr ().Get (), error.what ());
+		                           typeName, elementGuid.ToCStr ().Get (), error.what ());
 	}
 }
 
-bool CollectMesh (Model& model, GroupingMode groupingMode, ExportStatistics& statistics)
+bool CollectMesh (Model& model, GroupingMode groupingMode, const std::set<Int32>& clearGlassSurfaceIndices,
+                  ExportStatistics& statistics)
 {
 	Int32 visibleBodyCount = 0;
 	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
@@ -765,7 +881,8 @@ bool CollectMesh (Model& model, GroupingMode groupingMode, ExportStatistics& sta
 	GroupIndexMap groupIndices;
 	const std::vector<VisibleBodyGroup> visibleBodyGroups = GetVisibleBodyGroups (visibleBodyCount);
 	for (const VisibleBodyGroup& group : visibleBodyGroups)
-		CollectElement (group, model, materialIndices, groupIndices, groupingMode, statistics);
+		CollectElement (group, model, materialIndices, groupIndices, groupingMode, clearGlassSurfaceIndices,
+		                statistics);
 	return !model.positions.empty () && !model.materials.empty () && !model.groups.empty ();
 }
 
@@ -790,10 +907,30 @@ bool WriteGlb (const IO::Location& location, const Model& model)
 
 void ExportActive3DWindowToGlb ()
 {
-	ExportOptionsDialog optionsDialog;
+	std::vector<ClearGlassCandidate> clearGlassCandidates;
+	try {
+		Scoped3DWindowSight sight;
+		if (sight.GetError () != NoError) {
+			ACAPI_WriteReport (
+			    GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.",
+			                           sight.GetError ()),
+			    true);
+			return;
+		}
+		clearGlassCandidates = CollectClearGlassCandidates ();
+	} catch (const std::exception& error) {
+		ACAPI_WriteReport (
+		    GS::UniString::Printf ("Reading surfaces from the active 3D window failed: %s. No GLB was created.",
+		                           error.what ()),
+		    true);
+		return;
+	}
+
+	ExportOptionsDialog optionsDialog (std::move (clearGlassCandidates));
 	if (!optionsDialog.Invoke ())
 		return;
 	const GroupingMode groupingMode = optionsDialog.GetGroupingMode ();
+	const std::set<Int32> clearGlassSurfaceIndices = optionsDialog.GetClearGlassSurfaceIndices ();
 
 	// Ask for the destination before potentially expensive stair/railing mesh processing.
 	DG::FileDialog dialog (DG::FileDialog::Save);
@@ -812,11 +949,11 @@ void ExportActive3DWindowToGlb ()
 		if (sight.GetError () != NoError) {
 			ACAPI_WriteReport (
 			    GS::UniString::Printf ("The active 3D window model is unavailable (error: %d). No GLB was created.",
-				                       sight.GetError ()),
+			                           sight.GetError ()),
 			    true);
 			return;
 		}
-		if (!CollectMesh (model, groupingMode, statistics)) {
+		if (!CollectMesh (model, groupingMode, clearGlassSurfaceIndices, statistics)) {
 			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
 			return;
 		}

@@ -113,13 +113,21 @@ def main() -> None:
     require(materials[0]["occlusionTexture"] == {"index": 3}, "occlusion texture was not retained")
     require(materials[0]["emissiveTexture"] == {"index": 4}, "emissive texture was not retained")
     require(materials[0]["emissiveFactor"] == [0.1, 0.2, 0.3], "emissive factor was not retained")
-    require(materials[1]["extensions"]["KHR_materials_transmission"]["transmissionFactor"] == 1.0,
-            "clear glass lost full transmission")
+    require(materials[1]["extensions"]["KHR_materials_transmission"]["transmissionFactor"] == 0.98,
+            "clear glass lost its physical transmission preset")
+    require(materials[1]["pbrMetallicRoughness"]["roughnessFactor"] == 0.03,
+            "clear glass lost its roughness preset")
+    require(materials[1]["pbrMetallicRoughness"]["metallicFactor"] == 0.0,
+            "clear glass became metallic")
+    require(materials[1]["pbrMetallicRoughness"]["baseColorFactor"][3] == 1.0,
+            "clear glass uses coverage alpha")
     require(materials[1]["extensions"]["KHR_materials_ior"]["ior"] == 1.5,
             "clear glass lost its IOR")
     require("alphaMode" not in materials[1], "clear glass incorrectly uses coverage alpha")
     require("KHR_materials_volume" not in materials[1].get("extensions", {}),
             "thin glass unexpectedly gained a volume")
+    require(materials[1]["extras"]["archicad"]["transparencyPercent"] == 100.0,
+            "clear-glass override replaced the original Archicad transparency metadata")
     require(materials[2]["name"] == "Tinted rough glass", "material-name JSON escaping changed")
     require(materials[2]["pbrMetallicRoughness"]["baseColorFactor"] == [0.125, 0.25, 0.75, 1.0],
             "tinted-glass colour changed")
