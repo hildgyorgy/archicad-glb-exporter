@@ -49,6 +49,7 @@ struct Material {
 	double roughness = 1.0;
 	double transmission = 0.0;
 	double ior = 1.5;
+	bool clearGlassOverride = false;
 	double emissiveRed = 0.0;
 	double emissiveGreen = 0.0;
 	double emissiveBlue = 0.0;

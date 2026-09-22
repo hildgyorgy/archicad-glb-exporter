@@ -124,6 +124,8 @@ def main() -> None:
     require(materials[1]["extensions"]["KHR_materials_ior"]["ior"] == 1.5,
             "clear glass lost its IOR")
     require("alphaMode" not in materials[1], "clear glass incorrectly uses coverage alpha")
+    require(materials[1]["extras"]["archicad"]["clearGlassOverride"] is True,
+            "clear glass override marker is missing")
     require("KHR_materials_volume" not in materials[1].get("extensions", {}),
             "thin glass unexpectedly gained a volume")
     require(materials[1]["extras"]["archicad"]["transparencyPercent"] == 100.0,
@@ -144,6 +146,7 @@ def main() -> None:
         "specularPercent": 70.0,
         "shine": 1800.0,
         "emissionAttenuation": 0.0,
+        "clearGlassOverride": False,
     }, "Archicad source metadata was not retained")
     require(materials[3]["alphaMode"] == "MASK", "alpha-cutout plant lost its alpha mode")
     require(materials[3]["alphaCutoff"] == 0.5, "alpha-cutout plant lost its cutoff")

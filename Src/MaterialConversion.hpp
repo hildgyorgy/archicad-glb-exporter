@@ -48,6 +48,7 @@ inline void ApplyTransparency (const ArchicadMaterialProperties& source, bool ex
 		material.ior = 1.5;
 		material.metallic = 0.0;
 		material.alpha = 1.0;
+		material.clearGlassOverride = true;
 	}
 }
 

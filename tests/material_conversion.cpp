@@ -40,6 +40,7 @@ int main ()
 	RequireNear (clearGlass.ior, 1.5, "clear glass IOR changed");
 	RequireNear (clearGlass.metallic, 0.0, "clear glass remained metallic");
 	RequireNear (clearGlass.alpha, 1.0, "clear glass uses raster coverage alpha");
+	Require (clearGlass.clearGlassOverride, "clear glass override was not recorded");
 
 	const ArchicadMaterialProperties tintedRoughGlass {true, 58.0, 35.0, 300.0, 0.0, false};
 	Require (IsClearGlassCandidate (tintedRoughGlass), "selectable glass was excluded from the dialog");
@@ -50,6 +51,7 @@ int main ()
 	RequireNear (preservedGlass.transmission, 0.58, "unselected glass transparency was overridden");
 	Require (preservedGlass.roughness > 0.03, "unselected rough glass was converted to clear glass");
 	RequireNear (preservedGlass.alpha, 1.0, "physical transmission became coverage alpha");
+	Require (!preservedGlass.clearGlassOverride, "unselected glass was marked as overridden");
 
 	const ArchicadMaterialProperties leafCutout {true, 75.0, 80.0, 8000.0, 0.0, true};
 	Require (!IsClearGlassCandidate (leafCutout), "alpha-cutout texture was offered as clear glass");

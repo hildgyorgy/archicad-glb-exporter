@@ -72,16 +72,16 @@ public:
 		glassHeading.SetText ("Clear glass surfaces");
 		glassDescription.SetText (
 		    "Select the surfaces to export as clear, physically transparent glass. Other transparent surfaces "
-		    "will retain their original Archicad appearance.");
+		    "will retain their original Archicad appearance. Click a row to check or uncheck it.");
 		glassList.SetTabFieldCount (2);
-		glassList.SetTabFieldProperties (1, 0, 28, DG::ListBox::Center, DG::ListBox::NoTruncate);
-		glassList.SetTabFieldProperties (2, 30, 714, DG::ListBox::Left, DG::ListBox::EndTruncate);
+		glassList.SetTabFieldProperties (1, 0, 42, DG::ListBox::Center, DG::ListBox::NoTruncate);
+		glassList.SetTabFieldProperties (2, 44, 714, DG::ListBox::Left, DG::ListBox::EndTruncate);
 		glassList.SetItemHeight (22);
 		for (std::size_t index = 0; index < clearGlassCandidates.size (); ++index) {
 			glassList.AppendItem ();
 			const short item = static_cast<short> (index + 1);
 			glassList.SetTabItemText (item, 2, clearGlassCandidates[index].details.c_str ());
-			UpdateGlassCheckIcon (item);
+			UpdateGlassCheckMarker (item);
 		}
 		if (clearGlassCandidates.empty ()) {
 			glassList.AppendItem ();
@@ -133,24 +133,23 @@ private:
 		PostCloseRequest (event.GetSource () == &okButton ? Accept : Cancel);
 	}
 
-	void ListBoxClicked (const DG::ListBoxClickEvent& event) override
+	void ListBoxSelectionChanged (const DG::ListBoxSelectionEvent& event) override
 	{
-		const short item = event.GetListItem ();
-		if (event.GetSource () != &glassList || item <= 0 ||
-		    static_cast<std::size_t> (item) > clearGlassCandidates.size ())
+		if (event.GetSource () != &glassList)
+			return;
+		const short item = glassList.GetSelectedItem ();
+		if (item <= 0 || static_cast<std::size_t> (item) > clearGlassCandidates.size ())
 			return;
 		ClearGlassCandidate& candidate = clearGlassCandidates[static_cast<std::size_t> (item - 1)];
 		candidate.selected = !candidate.selected;
-		UpdateGlassCheckIcon (item);
+		UpdateGlassCheckMarker (item);
 		glassList.DeselectItem (item);
 	}
 
-	void UpdateGlassCheckIcon (short item)
+	void UpdateGlassCheckMarker (short item)
 	{
 		const bool selected = clearGlassCandidates[static_cast<std::size_t> (item - 1)].selected;
-		glassList.SetTabItemIcon (
-		    item, 1,
-		    DG::Icon (static_cast<GSResModule> (0), selected ? DG::ListBox::CheckedIcon : DG::ListBox::UncheckedIcon));
+		glassList.SetTabItemText (item, 1, selected ? "[x]" : "[ ]");
 	}
 
 	DG::LeftText groupingPrompt;

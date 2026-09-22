@@ -55,6 +55,7 @@ int main (int argumentCount, char** arguments)
 	clearGlass.sourceShine = 10000.0;
 	clearGlass.roughness = 0.03;
 	clearGlass.transmission = 0.98;
+	clearGlass.clearGlassOverride = true;
 
 	DropView::Glb::Material tintedGlass;
 	tintedGlass.sourceIndex = 13;
