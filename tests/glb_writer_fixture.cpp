@@ -1,4 +1,5 @@
 #include "GlbWriter.hpp"
+#include "MaterialConversion.hpp"
 
 #include <fstream>
 #include <iostream>
@@ -38,6 +39,9 @@ int main (int argumentCount, char** arguments)
 	opaqueTextured.name = "Opaque textured surface";
 	opaqueTextured.imageData = sharedImage;
 	opaqueTextured.imageMimeType = "image/png";
+	// A textured roof keeps a white multiplier even if Archicad has a surface swatch.
+	DropView::MaterialConversion::ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0,
+	                                                 opaqueTextured);
 	opaqueTextured.normalTexture = {normalImage, "image/png"};
 	opaqueTextured.metallicRoughnessTexture = {ormImage, "image/png"};
 	opaqueTextured.occlusionTexture = {ormImage, "image/png"};
@@ -86,8 +90,14 @@ int main (int argumentCount, char** arguments)
 	coverageBlend.imageData = sharedImage;
 	coverageBlend.imageMimeType = "image/png";
 
-	model.materials = {opaqueTextured, clearGlass, tintedGlass, plant, coverageBlend};
-	model.groups = {{"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}, {4, {0, 1, 2}}}},
+	DropView::Glb::Material beigePlaster;
+	beigePlaster.sourceIndex = 16;
+	beigePlaster.name = "gipsz - szemcsés bézs";
+	DropView::MaterialConversion::ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0,
+	                                                 beigePlaster);
+
+	model.materials = {opaqueTextured, clearGlass, tintedGlass, plant, coverageBlend, beigePlaster};
+	model.groups = {{"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}, {4, {0, 1, 2}}, {5, {0, 1, 2}}}},
 	                {"layer:2", "Layer: Site", {{2, {6, 7, 8}}, {3, {9, 10, 11}}}},
 	                {"layer:3", "Layer: Reused material", {{0, {0, 1, 2}}}}};
 	const std::vector<char> glb = DropView::Glb::BuildBinary (model, "Drop & View \"writer\"\ntest");

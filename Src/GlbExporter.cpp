@@ -647,18 +647,18 @@ Material ReadMaterial (Int32 sourceIndex, bool exportAsClearGlass)
 	material.name = sourceMaterial.head.name;
 	if (material.name.empty ())
 		material.name = "Archicad Surface " + std::to_string (sourceIndex);
-	material.red = sourceMaterial.surfaceRGB.f_red;
-	material.green = sourceMaterial.surfaceRGB.f_green;
-	material.blue = sourceMaterial.surfaceRGB.f_blue;
+	DropView::MaterialConversion::ApplySurfaceColor (sourceMaterial.surfaceRGB.f_red,
+	                                                 sourceMaterial.surfaceRGB.f_green,
+	                                                 sourceMaterial.surfaceRGB.f_blue, material);
 	material.sourceMaterialType = static_cast<std::int32_t> (sourceMaterial.mtype);
 	material.sourceTransparencyPercent = sourceMaterial.transpPc;
 	material.sourceSpecularPercent = sourceMaterial.specularPc;
 	material.sourceShine = sourceMaterial.shine;
 	material.sourceEmissionAttenuation = sourceMaterial.emissionAtt;
-	const double emissionFactor = std::clamp (sourceMaterial.emissionAtt / 100.0, 0.0, 1.0);
-	material.emissiveRed = sourceMaterial.emissionRGB.f_red * emissionFactor;
-	material.emissiveGreen = sourceMaterial.emissionRGB.f_green * emissionFactor;
-	material.emissiveBlue = sourceMaterial.emissionRGB.f_blue * emissionFactor;
+	DropView::MaterialConversion::ApplyEmissionColor (sourceMaterial.emissionRGB.f_red,
+	                                                  sourceMaterial.emissionRGB.f_green,
+	                                                  sourceMaterial.emissionRGB.f_blue,
+	                                                  sourceMaterial.emissionAtt, material);
 	material.texture.xSize = sourceMaterial.texture.xSize;
 	material.texture.ySize = sourceMaterial.texture.ySize;
 	material.texture.rotationDegrees = sourceMaterial.texture.rotAng;

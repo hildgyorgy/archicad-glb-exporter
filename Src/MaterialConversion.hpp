@@ -16,6 +16,31 @@ struct ArchicadMaterialProperties {
 	bool usesAlphaCutout = false;
 };
 
+// Archicad's surface and emission colour pickers provide sRGB values.
+// glTF material colour factors are linear; texture RGB is decoded by the viewer.
+inline double SrgbToLinear (double channel)
+{
+	channel = std::clamp (channel, 0.0, 1.0);
+	return channel <= 0.04045 ? channel / 12.92 : std::pow ((channel + 0.055) / 1.055, 2.4);
+}
+
+inline void ApplySurfaceColor (double red, double green, double blue, DropView::Glb::Material& material)
+{
+	material.red = SrgbToLinear (red);
+	material.green = SrgbToLinear (green);
+	material.blue = SrgbToLinear (blue);
+}
+
+inline void ApplyEmissionColor (double red, double green, double blue, double attenuation,
+                                DropView::Glb::Material& material)
+{
+	// Preserve the existing Archicad emission strength; only decode its RGB colour.
+	const double emissionFactor = std::clamp (attenuation / 100.0, 0.0, 1.0);
+	material.emissiveRed = SrgbToLinear (red) * emissionFactor;
+	material.emissiveGreen = SrgbToLinear (green) * emissionFactor;
+	material.emissiveBlue = SrgbToLinear (blue) * emissionFactor;
+}
+
 inline bool IsClearGlassCandidate (const ArchicadMaterialProperties& source)
 {
 	return source.transparencyPercent >= 50.0 && !source.usesAlphaCutout;

@@ -22,9 +22,31 @@ void RequireNear (double actual, double expected, const char* message)
 int main ()
 {
 	using DropView::MaterialConversion::ApplyTransparency;
+	using DropView::MaterialConversion::ApplySurfaceColor;
+	using DropView::MaterialConversion::ApplyEmissionColor;
 	using DropView::MaterialConversion::ArchicadMaterialProperties;
 	using DropView::MaterialConversion::IsClearGlassCandidate;
 	using DropView::MaterialConversion::IsHighConfidenceClearGlass;
+	using DropView::MaterialConversion::SrgbToLinear;
+
+	RequireNear (SrgbToLinear (231.0 / 255.0), 0.799102738014409, "beige red was not decoded from sRGB");
+	RequireNear (SrgbToLinear (207.0 / 255.0), 0.6239603916750761, "beige green was not decoded from sRGB");
+	RequireNear (SrgbToLinear (171.0 / 255.0), 0.4072402119017367, "beige blue was not decoded from sRGB");
+	RequireNear (SrgbToLinear (0.0), 0.0, "sRGB black changed");
+	RequireNear (SrgbToLinear (1.0), 1.0, "sRGB white changed");
+	RequireNear (SrgbToLinear (10.0 / 255.0), (10.0 / 255.0) / 12.92, "sRGB dark segment changed");
+	DropView::Glb::Material beige;
+	beige.alpha = 0.4;
+	ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0, beige);
+	RequireNear (beige.red, 0.799102738014409, "Archicad surface red was not linearized");
+	RequireNear (beige.green, 0.6239603916750761, "Archicad surface green was not linearized");
+	RequireNear (beige.blue, 0.4072402119017367, "Archicad surface blue was not linearized");
+	RequireNear (beige.alpha, 0.4, "surface colour conversion changed coverage alpha");
+	ApplyEmissionColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0, 40.0, beige);
+	RequireNear (beige.emissiveRed, 0.799102738014409 * 0.4, "emissive red or strength changed");
+	RequireNear (beige.emissiveGreen, 0.6239603916750761 * 0.4, "emissive green or strength changed");
+	RequireNear (beige.emissiveBlue, 0.4072402119017367 * 0.4, "emissive blue or strength changed");
+	RequireNear (beige.alpha, 0.4, "emissive conversion changed coverage alpha");
 
 	const ArchicadMaterialProperties likelyClearGlass {true, 69.0, 78.0, 8000.0, 0.0, false};
 	Require (IsClearGlassCandidate (likelyClearGlass), "physical clear-glass candidate was not offered");

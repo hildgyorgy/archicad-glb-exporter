@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import math
 import pathlib
 import struct
 import subprocess
@@ -80,12 +81,13 @@ def main() -> None:
     require(len(document["meshes"]) == 3, "expected three export-group meshes")
     require([mesh["name"] for mesh in document["meshes"]] == expected_group_names,
             "export-group mesh names changed")
-    require([len(mesh["primitives"]) for mesh in document["meshes"]] == [3, 2, 1],
+    require([len(mesh["primitives"]) for mesh in document["meshes"]] == [4, 2, 1],
             "materials were not retained as primitives inside groups")
-    require(len(accessors) == 24, "expected four accessors per primitive")
+    require(len(accessors) == 28, "expected four accessors per primitive")
     expected_positions = [
         [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
         [(0.0, 0.0, 1.0), (2.0, 0.0, 1.0), (0.0, 3.0, 1.0)],
+        [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
         [(0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (0.0, 3.0, 0.0)],
         [(-2.0, 1.0, 4.0), (1.0, 1.0, 4.0), (-2.0, 5.0, 4.0)],
         [(-2.0, 1.0, 5.0), (1.0, 1.0, 5.0), (-2.0, 5.0, 5.0)],
@@ -95,7 +97,7 @@ def main() -> None:
     for primitive_index, primitive in enumerate(primitives):
         referenced = list(primitive["attributes"].values()) + [primitive["indices"]]
         require(all(0 <= index < len(accessors) for index in referenced), "primitive references an invalid accessor")
-        require(primitive["material"] == [0, 1, 4, 2, 3, 0][primitive_index], "primitive references the wrong material")
+        require(primitive["material"] == [0, 1, 4, 5, 2, 3, 0][primitive_index], "primitive references the wrong material")
         require(read_accessor(document, binary, primitive["attributes"]["POSITION"]) == expected_positions[primitive_index],
                 "position data changed")
         require(read_accessor(document, binary, primitive["indices"]) == [(0,), (1,), (2,)], "index data changed")
@@ -107,6 +109,8 @@ def main() -> None:
     require("alphaMode" not in materials[0], "opaque textured material unexpectedly gained an alpha mode")
     require(materials[0]["pbrMetallicRoughness"]["baseColorTexture"] == {"index": 0},
             "opaque base-colour texture was not retained")
+    require(materials[0]["pbrMetallicRoughness"]["baseColorFactor"] == [1.0, 1.0, 1.0, 1.0],
+            "textured surface colour tinted the embedded image")
     require(materials[0]["normalTexture"] == {"index": 1}, "normal texture was not retained")
     require(materials[0]["pbrMetallicRoughness"]["metallicRoughnessTexture"] == {"index": 2},
             "packed metallic-roughness texture was not retained")
@@ -154,6 +158,13 @@ def main() -> None:
     require(materials[4]["alphaMode"] == "BLEND", "coverage-alpha material lost its alpha mode")
     require(materials[4]["pbrMetallicRoughness"]["baseColorFactor"] == [1.0, 1.0, 1.0, 0.5],
             "coverage-alpha material changed")
+    beige = materials[5]["pbrMetallicRoughness"]
+    require(materials[5]["name"] == "gipsz - szemcsés bézs", "beige surface name changed")
+    require("baseColorTexture" not in beige, "untextured beige surface acquired a texture")
+    require(len(beige["baseColorFactor"]) == 4, "beige base colour does not contain RGBA")
+    require(all(math.isclose(actual, expected, abs_tol=0.000001) for actual, expected in zip(
+        beige["baseColorFactor"], [0.799102738, 0.623960392, 0.407240212, 1.0])),
+        "#E7CFAB was not exported as linear RGB with unchanged alpha")
 
     require(len(document["images"]) == 4, "embedded channel images were not deduplicated")
     require(len(document["textures"]) == 7, "expected one texture binding per material channel")

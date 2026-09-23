@@ -52,6 +52,12 @@ material's `extras.archicad` object for compatibility and diagnostics. Emission
 colour and attenuation are mapped to glTF's emissive factor; the original
 attenuation is also retained in the extras object.
 
+For surfaces without an image, the Archicad colour picker's sRGB channels are
+decoded to linear RGB for glTF `baseColorFactor`. Textured surfaces retain a
+white base-colour factor and their embedded image bytes. The same RGB decoding
+is applied to Archicad emission colour before the existing emission strength
+is multiplied in; alpha remains a linear coverage value.
+
 ## Installation
 
 1. Download the latest package for your platform from [GitHub Releases](https://github.com/hildgyorgy/archicad-glb-exporter/releases).
