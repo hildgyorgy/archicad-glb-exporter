@@ -22,10 +22,9 @@ int main (int argumentCount, char** arguments)
 	}
 
 	DropView::Glb::Model model;
-	model.positions = {{0.0f, 0.0f, 0.0f},  {2.0f, 0.0f, 0.0f}, {0.0f, 3.0f, 0.0f},
-	                   {0.0f, 0.0f, 1.0f},  {2.0f, 0.0f, 1.0f}, {0.0f, 3.0f, 1.0f},
-	                   {-2.0f, 1.0f, 4.0f}, {1.0f, 1.0f, 4.0f}, {-2.0f, 5.0f, 4.0f},
-	                   {-2.0f, 1.0f, 5.0f}, {1.0f, 1.0f, 5.0f}, {-2.0f, 5.0f, 5.0f}};
+	model.positions = {{0.0f, 0.0f, 0.0f},  {2.0f, 0.0f, 0.0f},  {0.0f, 3.0f, 0.0f},  {0.0f, 0.0f, 1.0f},
+	                   {2.0f, 0.0f, 1.0f},  {0.0f, 3.0f, 1.0f},  {-2.0f, 1.0f, 4.0f}, {1.0f, 1.0f, 4.0f},
+	                   {-2.0f, 5.0f, 4.0f}, {-2.0f, 1.0f, 5.0f}, {1.0f, 1.0f, 5.0f},  {-2.0f, 5.0f, 5.0f}};
 	model.normals.assign (12, {0.0f, 0.0f, 1.0f});
 	model.textureCoordinates = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
 	model.textureCoordinates.resize (12, {0.0f, 0.0f});
@@ -54,8 +53,9 @@ int main (int argumentCount, char** arguments)
 	clearGlass.sourceTransparencyPercent = 100.0;
 	clearGlass.sourceSpecularPercent = 100.0;
 	clearGlass.sourceShine = 10000.0;
-	clearGlass.roughness = 0.04;
-	clearGlass.transmission = 1.0;
+	clearGlass.roughness = 0.03;
+	clearGlass.transmission = 0.98;
+	clearGlass.clearGlassOverride = true;
 
 	DropView::Glb::Material tintedGlass;
 	tintedGlass.sourceIndex = 13;

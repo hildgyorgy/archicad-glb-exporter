@@ -252,12 +252,12 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			const std::size_t indexView = layout.AddTypedBufferView (packed.indices, Constant::ElementArrayBuffer);
 			primitiveReferences.back ().push_back (
 			    {primitive.materialIndex,
-				 layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
-				                     packed.minimum, packed.maximum),
-				 layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
-				 layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
-				                     "VEC2"),
-				 layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")});
+			     layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
+			                         packed.minimum, packed.maximum),
+			     layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
+			     layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
+			                         "VEC2"),
+			     layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")});
 		}
 	}
 
@@ -271,9 +271,10 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	auto addTexture = [&] (std::size_t materialIndex, const std::vector<char>& data, const std::string& mimeType) {
 		if (data.empty ())
 			return -1;
-		auto existingImage = std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
-			return image.mimeType == mimeType && *image.data == data;
-		});
+		auto existingImage =
+		    std::find_if (embeddedImages.begin (), embeddedImages.end (), [&] (const EmbeddedImage& image) {
+			    return image.mimeType == mimeType && *image.data == data;
+		    });
 		std::size_t imageIndex = 0;
 		if (existingImage == embeddedImages.end ()) {
 			imageIndex = embeddedImages.size ();
@@ -293,13 +294,13 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		    addTexture (i, material.metallicRoughnessTexture.data, material.metallicRoughnessTexture.mimeType);
 		materialOcclusionTextureIndices[i] =
 		    addTexture (i, material.occlusionTexture.data, material.occlusionTexture.mimeType);
-		materialEmissiveTextureIndices[i] = addTexture (i, material.emissiveTexture.data, material.emissiveTexture.mimeType);
+		materialEmissiveTextureIndices[i] =
+		    addTexture (i, material.emissiveTexture.data, material.emissiveTexture.mimeType);
 	}
 	while (layout.binary.size () % 4 != 0)
 		layout.binary.push_back (0);
-	const bool usesTransmission = std::any_of (model.materials.begin (), model.materials.end (), [] (const Material& material) {
-		return material.transmission > 0.0;
-	});
+	const bool usesTransmission = std::any_of (model.materials.begin (), model.materials.end (),
+	                                           [] (const Material& material) { return material.transmission > 0.0; });
 
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
@@ -368,19 +369,20 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			     << material.emissiveBlue << ']';
 		}
 		if (material.transmission > 0.0) {
-			json << ",\"extensions\":{\"KHR_materials_transmission\":{\"transmissionFactor\":"
-			     << material.transmission << "},\"KHR_materials_ior\":{\"ior\":" << material.ior << "}}";
+			json << ",\"extensions\":{\"KHR_materials_transmission\":{\"transmissionFactor\":" << material.transmission
+			     << "},\"KHR_materials_ior\":{\"ior\":" << material.ior << "}}";
 		}
 		if (material.alpha < 1.0)
 			json << ",\"alphaMode\":\"BLEND\"";
 		else if (material.alphaMask)
 			json << ",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.5";
 		json << ",\"doubleSided\":true,\"extras\":{\"archicad\":{\"surfaceIndex\":" << material.sourceIndex
-		     << ",\"surfaceName\":\"" << EscapeJsonString (material.name) << "\",\"materialType\":"
-		     << material.sourceMaterialType << ",\"transparencyPercent\":" << material.sourceTransparencyPercent
+		     << ",\"surfaceName\":\"" << EscapeJsonString (material.name)
+		     << "\",\"materialType\":" << material.sourceMaterialType
+		     << ",\"transparencyPercent\":" << material.sourceTransparencyPercent
 		     << ",\"specularPercent\":" << material.sourceSpecularPercent << ",\"shine\":" << material.sourceShine
 		     << ",\"emissionAttenuation\":" << material.sourceEmissionAttenuation
-		     << "}}}";
+		     << ",\"clearGlassOverride\":" << (material.clearGlassOverride ? "true" : "false") << "}}}";
 	}
 	json << ']';
 	if (!textureBindings.empty ()) {
@@ -396,16 +398,15 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 				json << ',';
 			const Material& material = model.materials[textureBindings[i].materialIndex];
 			json << "{\"wrapS\":" << (material.texture.mirrorX ? Constant::MirroredRepeat : Constant::Repeat)
-			     << ",\"wrapT\":" << (material.texture.mirrorY ? Constant::MirroredRepeat : Constant::Repeat)
-			     << '}';
+			     << ",\"wrapT\":" << (material.texture.mirrorY ? Constant::MirroredRepeat : Constant::Repeat) << '}';
 		}
 		json << "],\"images\":[";
 		for (std::size_t i = 0; i < embeddedImages.size (); ++i) {
 			if (i > 0)
 				json << ',';
 			const EmbeddedImage& image = embeddedImages[i];
-			json << "{\"bufferView\":" << image.bufferView << ",\"mimeType\":\""
-			     << EscapeJsonString (image.mimeType) << "\"}";
+			json << "{\"bufferView\":" << image.bufferView << ",\"mimeType\":\"" << EscapeJsonString (image.mimeType)
+			     << "\"}";
 		}
 		json << ']';
 	}

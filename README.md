@@ -68,8 +68,10 @@ attenuation is also retained in the extras object.
 3. Choose **Drop & View GLB Exporter > Export active 3D window to GLB…**.
 4. Choose one grouping mode: **Surface / Texture**, **Layer** or **Element type**. The exported GLB contains one
    independently identifiable node and mesh for each group; materials and textures remain attached to their geometry.
-5. Choose the destination `.glb` file.
-6. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+5. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
+   properties, while other transparent surfaces retain their original appearance. Adjust the checkboxes when needed.
+6. Choose the destination `.glb` file.
+7. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
 
 Only the selected grouping hierarchy is written to a GLB. Export the same Archicad view again with another mode when a
 different visibility list is required. **Surface / Texture** preserves the original exporter grouping behavior.

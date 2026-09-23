@@ -21,6 +21,12 @@ SetPortableTestCompilerOptions (DropViewSurfaceNormalTests)
 
 add_test (NAME surface_normals COMMAND DropViewSurfaceNormalTests)
 
+add_executable (DropViewMaterialConversionTests material_conversion.cpp)
+target_include_directories (DropViewMaterialConversionTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Src")
+SetPortableTestCompilerOptions (DropViewMaterialConversionTests)
+
+add_test (NAME material_conversion COMMAND DropViewMaterialConversionTests)
+
 add_library (DropViewGlbWriter STATIC ../Src/GlbWriter.cpp)
 target_include_directories (DropViewGlbWriter PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../Src")
 SetPortableTestCompilerOptions (DropViewGlbWriter)
