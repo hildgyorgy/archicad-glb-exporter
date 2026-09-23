@@ -1,6 +1,6 @@
 # Drop & View GLB Exporter
 
-This production release adds selectable model grouping while retaining the material compatibility and curved-geometry improvements from the beta releases. The active Archicad 3D window remains the complete source of exported geometry and appearance.
+This maintenance release adds explicit clear-glass selection to the export dialog. The active Archicad 3D window remains the complete source of exported geometry and appearance.
 
 ## Requirements
 
@@ -9,6 +9,11 @@ This production release adds selectable model grouping while retaining the mater
 
 ## Highlights
 
+- Lists every visible, non-cutout surface with at least 50% Archicad transparency and lets the architect choose which ones should become optically clear glass.
+- Exports selected clear glass with `transmissionFactor: 0.98`, `roughnessFactor: 0.03`, IOR 1.5, full coverage alpha and no guessed volume thickness.
+- Keeps unselected transparent, tinted, emissive and textured surfaces faithful to their own Archicad settings.
+- Shows the source material type, transparency, specular value, shininess, emission and alpha-cutout status beside every clear-glass candidate.
+- Preserves all original Archicad material values and records whether the clear-glass override was applied in `extras.archicad`.
 - Exports every visible body in the active Archicad 3D window without requiring an Archicad selection.
 - Preserves visible 3D cuts, effective surface colours, transparency, embedded textures, texture size and rotation.
 - Exports transparent and glass surfaces as thin physical glTF materials using `KHR_materials_transmission` and `KHR_materials_ior`, without confusing optical transmission with coverage alpha.
