@@ -28,6 +28,7 @@ int main ()
 	using DropView::MaterialConversion::IsClearGlassCandidate;
 	using DropView::MaterialConversion::IsHighConfidenceClearGlass;
 	using DropView::MaterialConversion::SrgbToLinear;
+	using DropView::MaterialConversion::UsesAlphaCutout;
 
 	RequireNear (SrgbToLinear (231.0 / 255.0), 0.799102738014409, "beige red was not decoded from sRGB");
 	RequireNear (SrgbToLinear (207.0 / 255.0), 0.6239603916750761, "beige green was not decoded from sRGB");
@@ -47,6 +48,11 @@ int main ()
 	RequireNear (beige.emissiveGreen, 0.6239603916750761 * 0.4, "emissive green or strength changed");
 	RequireNear (beige.emissiveBlue, 0.4072402119017367 * 0.4, "emissive blue or strength changed");
 	RequireNear (beige.alpha, 0.4, "emissive conversion changed coverage alpha");
+
+	Require (UsesAlphaCutout (true, true, true, 0.0), "explicit Archicad alpha cutout was ignored");
+	Require (UsesAlphaCutout (true, false, false, 80.0), "transparent RGBA cutout was ignored");
+	Require (!UsesAlphaCutout (true, false, false, 0.0), "opaque RGBA texture became a cutout");
+	Require (!UsesAlphaCutout (false, true, true, 80.0), "texture without alpha became a cutout");
 
 	const ArchicadMaterialProperties likelyClearGlass {true, 69.0, 78.0, 8000.0, 0.0, false};
 	Require (IsClearGlassCandidate (likelyClearGlass), "physical clear-glass candidate was not offered");
@@ -74,6 +80,21 @@ int main ()
 	Require (preservedGlass.roughness > 0.03, "unselected rough glass was converted to clear glass");
 	RequireNear (preservedGlass.alpha, 1.0, "physical transmission became coverage alpha");
 	Require (!preservedGlass.clearGlassOverride, "unselected glass was marked as overridden");
+
+	const ArchicadMaterialProperties chainLinkFence {false, 80.0, 30.0, 300.0, 98.0, true};
+	DropView::Glb::Material preservedFence;
+	preservedFence.alphaMask = true;
+	ApplyTransparency (chainLinkFence, false, preservedFence);
+	RequireNear (preservedFence.transmission, 0.0, "alpha-cutout fence became physical glass");
+	RequireNear (preservedFence.alpha, 1.0, "alpha-cutout fence changed uniform coverage");
+	Require (preservedFence.alphaMask, "alpha-cutout fence lost its texture mask");
+	Require (!IsClearGlassCandidate (chainLinkFence), "alpha-cutout fence was offered as clear glass");
+
+	DropView::Glb::Material fenceSelectedAsGlass;
+	fenceSelectedAsGlass.alphaMask = true;
+	ApplyTransparency (chainLinkFence, true, fenceSelectedAsGlass);
+	RequireNear (fenceSelectedAsGlass.transmission, 0.98, "selected cutout did not become clear glass");
+	Require (!fenceSelectedAsGlass.alphaMask, "clear-glass override retained the texture mask");
 
 	const ArchicadMaterialProperties leafCutout {true, 75.0, 80.0, 8000.0, 0.0, true};
 	Require (!IsClearGlassCandidate (leafCutout), "alpha-cutout texture was offered as clear glass");

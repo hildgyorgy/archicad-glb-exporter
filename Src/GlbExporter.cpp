@@ -283,6 +283,30 @@ bool IsTiffImage (const std::vector<char>& imageData)
 	return littleEndianTiff || bigEndianTiff;
 }
 
+bool PngHasAlphaChannel (const std::vector<char>& imageData)
+{
+	// The PNG IHDR color type is byte 25. Types 4 and 6 contain alpha.
+	return imageData.size () > 25 &&
+	       static_cast<unsigned char> (imageData[0]) == 0x89 && imageData[1] == 'P' && imageData[2] == 'N' &&
+	       imageData[3] == 'G' &&
+	       (static_cast<unsigned char> (imageData[25]) == 4 || static_cast<unsigned char> (imageData[25]) == 6);
+}
+
+bool TextureFileHasPngAlpha (const IO::Location* location)
+{
+	if (location == nullptr)
+		return false;
+	IO::File file (*location);
+	USize size = 0;
+	constexpr USize PngHeaderSize = 26;
+	if (file.Open (IO::File::ReadMode) != NoError || file.GetDataLength (&size) != NoError || size < PngHeaderSize)
+		return false;
+	std::vector<char> header (PngHeaderSize);
+	USize bytesRead = 0;
+	return file.ReadBin (header.data (), PngHeaderSize, &bytesRead) == NoError && bytesRead == PngHeaderSize &&
+	       PngHasAlphaChannel (header);
+}
+
 bool ConvertTiffToPng (const std::vector<char>& tiffData, std::vector<char>& pngData)
 {
 	GSHandle inputHandle = BMhAll (static_cast<GSSize> (tiffData.size ()));
@@ -348,14 +372,14 @@ void LoadTextureImage (const IO::Location* location, Material& material)
 		material.imageData.clear ();
 	}
 
-	// An alpha channel in the source image is not enough to make the Archicad
-	// surface transparent. Some opaque textures contain luminance-like alpha
-	// data. Use it as a cutout only when Archicad explicitly enables both alpha
-	// use and transparency-pattern handling for the texture.
-	bytes = reinterpret_cast<const unsigned char*> (material.imageData.data ());
-	const bool pngHasAlpha =
-	    material.imageMimeType == "image/png" && material.imageData.size () > 25 && (bytes[25] == 4 || bytes[25] == 6);
-	material.alphaMask = pngHasAlpha && material.texture.useAlpha && material.texture.transparencyPattern;
+	// An alpha channel alone is not enough: some opaque textures contain
+	// luminance-like alpha data. Respect Archicad's explicit cutout flags, and
+	// also preserve RGBA coverage on transparent library surfaces whose 3D
+	// material omits those flags (for example chain-link fencing).
+	const bool pngHasAlpha = material.imageMimeType == "image/png" && PngHasAlphaChannel (material.imageData);
+	material.alphaMask = DropView::MaterialConversion::UsesAlphaCutout (
+	    pngHasAlpha, material.texture.useAlpha, material.texture.transparencyPattern,
+	    material.sourceTransparencyPercent);
 }
 
 Vec3 ConvertPosition (const API_Tranmat& transform, const API_VertType& vertex)
@@ -618,7 +642,13 @@ std::vector<ClearGlassCandidate> CollectClearGlassCandidates ()
 		if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
 			continue;
 		const API_MaterialType& sourceMaterial = component.umat.mater;
-		const auto properties = GetMaterialProperties (sourceMaterial);
+		auto properties = GetMaterialProperties (sourceMaterial);
+		std::unique_ptr<IO::Location> textureLocation (sourceMaterial.texture.fileLoc);
+		properties.usesAlphaCutout = DropView::MaterialConversion::UsesAlphaCutout (
+		    TextureFileHasPngAlpha (textureLocation.get ()),
+		    (sourceMaterial.texture.status & APITxtr_UseAlpha) != 0,
+		    (sourceMaterial.texture.status & APITxtr_TransPattern) != 0,
+		    static_cast<double> (sourceMaterial.transpPc));
 		if (!DropView::MaterialConversion::IsClearGlassCandidate (properties))
 			continue;
 		std::string name = sourceMaterial.head.name;
@@ -666,10 +696,11 @@ Material ReadMaterial (Int32 sourceIndex, bool exportAsClearGlass)
 	material.texture.mirrorY = (sourceMaterial.texture.status & APITxtr_MirrorY) != 0;
 	material.texture.useAlpha = (sourceMaterial.texture.status & APITxtr_UseAlpha) != 0;
 	material.texture.transparencyPattern = (sourceMaterial.texture.status & APITxtr_TransPattern) != 0;
-	DropView::MaterialConversion::ApplyTransparency (GetMaterialProperties (sourceMaterial), exportAsClearGlass,
-	                                                 material);
 	std::unique_ptr<IO::Location> textureLocation (sourceMaterial.texture.fileLoc);
 	LoadTextureImage (textureLocation.get (), material);
+	auto properties = GetMaterialProperties (sourceMaterial);
+	properties.usesAlphaCutout = material.alphaMask;
+	DropView::MaterialConversion::ApplyTransparency (properties, exportAsClearGlass, material);
 	return material;
 }
 
