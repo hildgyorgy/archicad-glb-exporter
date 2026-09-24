@@ -1,6 +1,6 @@
 # Drop & View GLB Exporter
 
-This maintenance release adds explicit clear-glass selection to the export dialog. The active Archicad 3D window remains the complete source of exported geometry and appearance.
+This maintenance release improves clear-glass selection and restores alpha-cutout textures such as chain-link fencing. The active Archicad 3D window remains the complete source of exported geometry and appearance.
 
 ## Requirements
 
@@ -9,6 +9,7 @@ This maintenance release adds explicit clear-glass selection to the export dialo
 
 ## Highlights
 
+- Restores coverage-alpha cutouts for transparent RGBA library surfaces while keeping optical transmission separate from texture coverage.
 - Lists every visible, non-cutout surface with at least 50% Archicad transparency and lets the architect choose which ones should become optically clear glass.
 - Exports selected clear glass with `transmissionFactor: 0.98`, `roughnessFactor: 0.03`, IOR 1.5, full coverage alpha and no guessed volume thickness.
 - Keeps unselected transparent, tinted, emissive and textured surfaces faithful to their own Archicad settings.
