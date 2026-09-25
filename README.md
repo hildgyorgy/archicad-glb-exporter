@@ -22,7 +22,7 @@ The add-on uses the active Archicad 3D window as the source of truth. It exports
 - texture size and rotation;
 - smooth shading for Archicad surfaces marked as curved, while preserving hard edges;
 - active Graphical Overrides;
-- the active perspective or axonometric 3D viewpoint as a standard glTF camera, plus its Archicad target and view settings for Drop & View;
+- the active perspective or axonometric 3D viewpoint as a standard glTF camera, plus its Archicad target, view settings and sun position for Drop & View;
 - optional design credits entered at export time and stored as GLB metadata;
 - selectable surface, layer or element-type GLB mesh groups for visibility controls in compatible viewers.
 
@@ -30,7 +30,7 @@ Supported element families currently include walls, slabs, columns, beams, roofs
 
 Lighting, shadows, the Archicad environment and 2D drawing information are not baked into the GLB. The active camera is stored, but a viewer decides whether to activate it when opening the file.
 
-The optional design-credit text is stored in `asset.extras.dropView.designCredits`. The initial viewpoint is represented by a standard glTF camera and by `scenes[0].extras.dropView.initialView`, which retains the Archicad target and projection details needed by orbit-based viewers.
+The optional design-credit text is stored in `asset.extras.dropView.designCredits`. The initial viewpoint is represented by a standard glTF camera and by `scenes[0].extras.dropView.initialView`, which retains the Archicad target and projection details needed by orbit-based viewers. `scenes[0].extras.dropView.sun` stores the active 3D view's sun angles, date/time settings, and ready-to-use directions toward the sun and along its light rays.
 
 ### Materials and textures
 

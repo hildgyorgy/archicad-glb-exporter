@@ -39,6 +39,7 @@ using DropView::Glb::InitialView;
 using DropView::Glb::Material;
 using DropView::Glb::Model;
 using DropView::Glb::Primitive;
+using DropView::Glb::SunSettings;
 using DropView::Glb::Vec2;
 using DropView::Glb::Vec3;
 using GlbGeometry::CornerNormals;
@@ -613,6 +614,34 @@ InitialView CollectInitialView (const Model& model, const Active3DViewSettings& 
 	view.nearPlane = 0.01;
 	view.farPlane = diagonal * 5.0;
 	return view;
+}
+
+SunSettings CollectSunSettings (const Active3DViewSettings& settings)
+{
+	const API_SunAngleSettings& source = settings.projection.isPersp
+	                                               ? settings.projection.u.persp.sunAngSets
+	                                               : settings.projection.u.axono.sunAngSets;
+	SunSettings sun;
+	sun.azimuthRadians = source.sunAzimuth;
+	sun.altitudeRadians = source.sunAltitude;
+	sun.positionByDate = source.sunPosOpt == API_SunPosition_GivenByDate;
+	sun.year = source.year;
+	sun.month = source.month;
+	sun.day = source.day;
+	sun.hour = source.hour;
+	sun.minute = source.minute;
+	sun.second = source.second;
+	sun.daylightSaving = source.summerTime;
+
+	if (!std::isfinite (sun.azimuthRadians) || !std::isfinite (sun.altitudeRadians))
+		throw std::runtime_error ("The active 3D view has invalid sun angles");
+	const double horizontal = std::cos (sun.altitudeRadians);
+	// Archicad azimuth zero points East. Convert its Z-up coordinates to glTF's Y-up coordinates.
+	sun.directionToSun = Normalize ({static_cast<float> (horizontal * std::cos (sun.azimuthRadians)),
+	                                 static_cast<float> (std::sin (sun.altitudeRadians)),
+	                                 static_cast<float> (-horizontal * std::sin (sun.azimuthRadians))});
+	sun.lightDirection = Scale (sun.directionToSun, -1.0);
+	return sun;
 }
 
 Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reverse)
@@ -1229,11 +1258,13 @@ void ExportActive3DWindowToGlb ()
 {
 	std::optional<Active3DViewSettings> activeViewSettings;
 	std::string initialViewStatus;
+	std::string sunStatus;
 	try {
 		// Capture this before opening either modal dialog and before model traversal can alter Archicad's context.
 		activeViewSettings = ReadActive3DViewSettings ();
 	} catch (const std::exception& error) {
 		initialViewStatus = std::string ("omitted: ") + error.what ();
+		sunStatus = initialViewStatus;
 	}
 
 	std::vector<ClearGlassCandidate> clearGlassCandidates;
@@ -1296,6 +1327,12 @@ void ExportActive3DWindowToGlb ()
 			} catch (const std::exception& error) {
 				initialViewStatus = std::string ("omitted: ") + error.what ();
 			}
+			try {
+				model.sun = CollectSunSettings (*activeViewSettings);
+				sunStatus = "exported";
+			} catch (const std::exception& error) {
+				sunStatus = std::string ("omitted: ") + error.what ();
+			}
 		}
 	} catch (const std::exception& error) {
 		ACAPI_WriteReport (GS::UniString::Printf ("Geometry processing failed: %s. No GLB was created.", error.what ()),
@@ -1314,7 +1351,8 @@ void ExportActive3DWindowToGlb ()
 	}
 	const Int32 problemCount = statistics.emptyElementCount + statistics.failedElementCount;
 	const GS::UniString viewReport =
-	    GS::UniString::Printf ("\nInitial viewpoint: %s", initialViewStatus.c_str ());
+	    GS::UniString::Printf ("\nInitial viewpoint: %s\nSun position: %s", initialViewStatus.c_str (),
+	                           sunStatus.c_str ());
 	if (problemCount == 0)
 		ACAPI_WriteReport (
 		    GS::UniString::Printf (

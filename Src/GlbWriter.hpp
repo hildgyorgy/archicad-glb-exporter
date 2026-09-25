@@ -78,6 +78,21 @@ struct Group {
 
 enum class CameraProjection { Perspective, Orthographic };
 
+struct SunSettings {
+	double azimuthRadians = 0.0;
+	double altitudeRadians = 0.0;
+	Vec3 directionToSun {1.0f, 0.0f, 0.0f};
+	Vec3 lightDirection {-1.0f, 0.0f, 0.0f};
+	bool positionByDate = false;
+	unsigned short year = 0;
+	unsigned short month = 0;
+	unsigned short day = 0;
+	unsigned short hour = 0;
+	unsigned short minute = 0;
+	unsigned short second = 0;
+	bool daylightSaving = false;
+};
+
 struct InitialView {
 	CameraProjection projection = CameraProjection::Perspective;
 	Vec3 position {0.0f, 0.0f, 1.0f};
@@ -110,6 +125,7 @@ struct Model {
 	std::vector<Group> groups;
 	std::string designCredits;
 	std::optional<InitialView> initialView;
+	std::optional<SunSettings> sun;
 };
 
 std::vector<char> BuildBinary (const Model& model, const std::string& generator);

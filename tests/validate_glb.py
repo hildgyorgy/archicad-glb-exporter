@@ -69,6 +69,21 @@ def main() -> None:
     require(archicad_view["zoomScale"] == [1.25, 1.5], "Archicad 3D zoom scale changed")
     require(archicad_view["zoomDisplacement"] == [12.0, -8.0], "Archicad 3D zoom displacement changed")
 
+    sun = document["scenes"][0]["extras"]["dropView"]["sun"]
+    require(sun["azimuth"] == 0.0 and sun["altitude"] == 0.0, "sun angles changed")
+    require(sun["directionToSun"] == [1.0, 0.0, 0.0], "sun direction changed")
+    require(sun["lightDirection"] == [-1.0, 0.0, 0.0], "sunlight direction changed")
+    require(sun["positionMode"] == "dateTime", "sun position mode changed")
+    require(sun["dateTime"] == {
+        "year": 2026,
+        "month": 9,
+        "day": 25,
+        "hour": 13,
+        "minute": 30,
+        "second": 0,
+        "daylightSaving": True,
+    }, "sun date/time metadata changed")
+
     require(len(document["cameras"]) == 1, "expected one startup camera")
     camera = document["cameras"][0]
     require(camera["type"] == "perspective", "startup camera type changed")

@@ -116,6 +116,18 @@ int main (int argumentCount, char** arguments)
 	model.initialView->archicadZoomScaleY = 1.5;
 	model.initialView->archicadZoomDisplacementX = 12.0;
 	model.initialView->archicadZoomDisplacementY = -8.0;
+	model.sun = DropView::Glb::SunSettings {};
+	model.sun->azimuthRadians = 0.0;
+	model.sun->altitudeRadians = 0.0;
+	model.sun->directionToSun = {1.0f, 0.0f, 0.0f};
+	model.sun->lightDirection = {-1.0f, 0.0f, 0.0f};
+	model.sun->positionByDate = true;
+	model.sun->year = 2026;
+	model.sun->month = 9;
+	model.sun->day = 25;
+	model.sun->hour = 13;
+	model.sun->minute = 30;
+	model.sun->daylightSaving = true;
 	const std::vector<char> glb = DropView::Glb::BuildBinary (model, "Drop & View \"writer\"\ntest");
 
 	RequireFailure ([] { (void)DropView::Glb::BuildBinary ({}, "empty"); }, "Model without materials was accepted");

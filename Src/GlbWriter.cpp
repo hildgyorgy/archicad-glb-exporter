@@ -380,7 +380,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
 	     << EscapeJsonString (generator) << '"';
-	if (model.initialView.has_value () || !model.designCredits.empty ()) {
+	if (model.initialView.has_value () || model.sun.has_value () || !model.designCredits.empty ()) {
 		json << ",\"extras\":{\"dropView\":{\"schemaVersion\":1";
 		if (!model.designCredits.empty ())
 			json << ",\"designCredits\":\"" << EscapeJsonString (model.designCredits) << '"';
@@ -401,27 +401,49 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		json << model.groups.size ();
 	}
 	json << ']';
-	if (model.initialView.has_value ()) {
-		const InitialView& view = *model.initialView;
-		json << ",\"extras\":{\"dropView\":{\"initialView\":{\"camera\":0,\"projection\":\""
-		     << (view.projection == CameraProjection::Perspective ? "perspective" : "orthographic")
-		     << "\",\"position\":";
-		WriteVec3 (json, view.position);
-		json << ",\"target\":";
-		WriteVec3 (json, view.target);
-		json << ",\"up\":";
-		WriteVec3 (json, view.up);
-		json << ",\"archicad\":{\"viewCone\":" << view.archicadViewConeRadians
-		     << ",\"rollAngle\":" << view.archicadRollAngleRadians
-		     << ",\"twoPointPerspective\":" << (view.archicadTwoPointPerspective ? "true" : "false")
-		     << ",\"projectionMode\":" << view.archicadProjectionMode << ",\"windowSize\":[" << view.archicadWindowWidth
-		     << ',' << view.archicadWindowHeight << "],\"zoomScale\":[" << view.archicadZoomScaleX << ','
-		     << view.archicadZoomScaleY << "],\"zoomDisplacement\":[" << view.archicadZoomDisplacementX << ','
-		     << view.archicadZoomDisplacementY << "],\"projectionMatrix\":";
-		WriteDoubleArray (json, view.archicadProjectionMatrix);
-		json << ",\"inverseProjectionMatrix\":";
-		WriteDoubleArray (json, view.archicadInverseProjectionMatrix);
-		json << "}}}}";
+	if (model.initialView.has_value () || model.sun.has_value ()) {
+		json << ",\"extras\":{\"dropView\":{";
+		bool wroteSceneMetadata = false;
+		if (model.initialView.has_value ()) {
+			const InitialView& view = *model.initialView;
+			json << "\"initialView\":{\"camera\":0,\"projection\":\""
+			     << (view.projection == CameraProjection::Perspective ? "perspective" : "orthographic")
+			     << "\",\"position\":";
+			WriteVec3 (json, view.position);
+			json << ",\"target\":";
+			WriteVec3 (json, view.target);
+			json << ",\"up\":";
+			WriteVec3 (json, view.up);
+			json << ",\"archicad\":{\"viewCone\":" << view.archicadViewConeRadians
+			     << ",\"rollAngle\":" << view.archicadRollAngleRadians
+			     << ",\"twoPointPerspective\":" << (view.archicadTwoPointPerspective ? "true" : "false")
+			     << ",\"projectionMode\":" << view.archicadProjectionMode << ",\"windowSize\":["
+			     << view.archicadWindowWidth << ',' << view.archicadWindowHeight << "],\"zoomScale\":["
+			     << view.archicadZoomScaleX << ',' << view.archicadZoomScaleY << "],\"zoomDisplacement\":["
+			     << view.archicadZoomDisplacementX << ',' << view.archicadZoomDisplacementY
+			     << "],\"projectionMatrix\":";
+			WriteDoubleArray (json, view.archicadProjectionMatrix);
+			json << ",\"inverseProjectionMatrix\":";
+			WriteDoubleArray (json, view.archicadInverseProjectionMatrix);
+			json << "}}";
+			wroteSceneMetadata = true;
+		}
+		if (model.sun.has_value ()) {
+			const SunSettings& sun = *model.sun;
+			if (wroteSceneMetadata)
+				json << ',';
+			json << "\"sun\":{\"azimuth\":" << sun.azimuthRadians << ",\"altitude\":"
+			     << sun.altitudeRadians << ",\"directionToSun\":";
+			WriteVec3 (json, sun.directionToSun);
+			json << ",\"lightDirection\":";
+			WriteVec3 (json, sun.lightDirection);
+			json << ",\"positionMode\":\"" << (sun.positionByDate ? "dateTime" : "angles")
+			     << "\",\"dateTime\":{\"year\":" << sun.year << ",\"month\":" << sun.month
+			     << ",\"day\":" << sun.day << ",\"hour\":" << sun.hour << ",\"minute\":" << sun.minute
+			     << ",\"second\":" << sun.second << ",\"daylightSaving\":"
+			     << (sun.daylightSaving ? "true" : "false") << "}}";
+		}
+		json << "}}";
 	}
 	json << "}],\"nodes\":[";
 	for (std::size_t i = 0; i < model.groups.size (); ++i) {
