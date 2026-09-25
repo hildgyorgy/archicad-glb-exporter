@@ -1,6 +1,6 @@
 # Drop & View GLB Exporter
 
-This maintenance release improves clear-glass selection and restores alpha-cutout textures such as chain-link fencing. The active Archicad 3D window remains the complete source of exported geometry and appearance.
+This release lets compatible viewers open an exported model from the active Archicad 3D viewpoint and reproduce its sun direction. It also adds optional design credits while keeping the active Archicad 3D window as the complete source of exported geometry and appearance.
 
 ## Requirements
 
@@ -9,6 +9,12 @@ This maintenance release improves clear-glass selection and restores alpha-cutou
 
 ## Highlights
 
+- Exports the active perspective or axonometric 3D viewpoint as a standard glTF camera.
+- Stores the Archicad viewpoint target and projection details in versioned Drop & View scene metadata for orbit-based viewers.
+- Exports the active 3D view's sun azimuth and altitude in radians, together with normalized directions toward the sun and along its light rays.
+- Preserves whether the Archicad sun was set by angles or by date and time, including the associated date, time and daylight-saving setting.
+- Adds an optional remembered Design credits field and stores its text in versioned GLB asset metadata.
+- Keeps viewpoint and sun metadata optional, so GLB files remain usable in standard viewers and older Drop & View versions.
 - Restores coverage-alpha cutouts for transparent RGBA library surfaces while keeping optical transmission separate from texture coverage.
 - Lists every visible, non-cutout surface with at least 50% Archicad transparency and lets the architect choose which ones should become optically clear glass.
 - Exports selected clear glass with `transmissionFactor: 0.98`, `roughnessFactor: 0.03`, IOR 1.5, full coverage alpha and no guessed volume thickness.
