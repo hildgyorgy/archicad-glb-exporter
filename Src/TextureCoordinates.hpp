@@ -20,8 +20,12 @@ inline Coordinate ConvertToGltf (double u, double v, double rotationRadians, dou
 	const double sine = std::sin (rotationRadians);
 	const double rotatedU = cosine * u - sine * v;
 	const double rotatedV = sine * u + cosine * v;
-	const double scaledU = std::abs (xSize) > Epsilon ? rotatedU / xSize : rotatedU;
-	const double scaledV = std::abs (ySize) > Epsilon ? rotatedV / ySize : rotatedV;
+	double scaledU = rotatedU;
+	double scaledV = rotatedV;
+	if (std::abs (xSize) > Epsilon)
+		scaledU = rotatedU / xSize;
+	if (std::abs (ySize) > Epsilon)
+		scaledV = rotatedV / ySize;
 	return {scaledU, 1.0 - scaledV};
 }
 
