@@ -23,7 +23,7 @@ struct Vec2 {
 struct TextureParameters {
 	double xSize = 1.0;
 	double ySize = 1.0;
-	double rotationDegrees = 0.0;
+	double rotationRadians = 0.0;
 	bool mirrorX = false;
 	bool mirrorY = false;
 	bool useAlpha = false;

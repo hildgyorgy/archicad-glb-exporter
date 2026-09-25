@@ -14,8 +14,22 @@
 #include "GlbExporter.hpp"
 #include "GlbWriter.hpp"
 #include "MaterialConversion.hpp"
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunknown-pragmas"
+#endif
+#include "Model.hpp"
+#include "ModelElement.hpp"
+#include "ModelMeshBody.hpp"
+#include "Polygon.hpp"
+#include "TextureCoordinate.hpp"
+#include "Vertex.hpp"
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 #include "PolygonTriangulation.hpp"
 #include "SurfaceNormals.hpp"
+#include "TextureCoordinates.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -294,19 +308,9 @@ const char* GetElementTypeName (const API_ElemType& type)
 
 Vec2 ApplyArchicadTextureTransform (const API_UVCoord& uv, const DropView::Glb::TextureParameters& texture)
 {
-	// Equivalent to ModelerAPI::TextureCoordinate::ApplyMaterialParameters:
-	// rotate in texture space, then convert model-space distances to image repeats.
-	// Archicad 29's API_Umat 3D model component returns this value in degrees
-	// (for example 90.0 for a quarter turn), despite the API_Texture field docs.
-	constexpr double DegreesToRadians = 0.01745329251994329576923690768489;
-	const double rotation = texture.rotationDegrees * DegreesToRadians;
-	const double cosine = std::cos (rotation);
-	const double sine = std::sin (rotation);
-	const double rotatedU = cosine * uv.u - sine * uv.v;
-	const double rotatedV = sine * uv.u + cosine * uv.v;
-	const double u = std::abs (texture.xSize) > 1.0e-9 ? rotatedU / texture.xSize : rotatedU;
-	const double v = std::abs (texture.ySize) > 1.0e-9 ? rotatedV / texture.ySize : rotatedV;
-	return {static_cast<float> (u), static_cast<float> (1.0 - v)};
+	const auto converted = DropView::TextureCoordinates::ConvertToGltf (
+	    uv.u, uv.v, texture.rotationRadians, texture.xSize, texture.ySize);
+	return {static_cast<float> (converted.u), static_cast<float> (converted.v)};
 }
 
 bool IsTiffImage (const std::vector<char>& imageData)
@@ -928,7 +932,9 @@ Material ReadMaterial (Int32 sourceIndex, bool exportAsClearGlass)
 	    sourceMaterial.emissionAtt, material);
 	material.texture.xSize = sourceMaterial.texture.xSize;
 	material.texture.ySize = sourceMaterial.texture.ySize;
-	material.texture.rotationDegrees = sourceMaterial.texture.rotAng;
+	// API_Texture::rotAng is expressed in radians. Passing it through unchanged
+	// is essential for preserving each Archicad surface's texture orientation.
+	material.texture.rotationRadians = sourceMaterial.texture.rotAng;
 	material.texture.mirrorX = (sourceMaterial.texture.status & APITxtr_MirrorX) != 0;
 	material.texture.mirrorY = (sourceMaterial.texture.status & APITxtr_MirrorY) != 0;
 	material.texture.useAlpha = (sourceMaterial.texture.status & APITxtr_UseAlpha) != 0;
@@ -1002,11 +1008,30 @@ Primitive& GetOrCreatePrimitive (DropView::Glb::Group& group, std::size_t materi
 	return *primitive;
 }
 
+bool GetModelerTextureCoordinate (const ModelerAPI::MeshBody* body, const ModelerAPI::Polygon* polygon,
+                                  Int32 vertexIndex, API_UVCoord& uv)
+{
+	if (body == nullptr || polygon == nullptr)
+		return false;
+	try {
+		ModelerAPI::Vertex worldVertex;
+		body->GetVertex (vertexIndex, &worldVertex, ModelerAPI::CoordinateSystem::World);
+		ModelerAPI::TextureCoordinate modelerUv;
+		polygon->GetTextureCoordinate (&worldVertex, &modelerUv);
+		uv.u = modelerUv.u;
+		uv.v = modelerUv.v;
+		return true;
+	} catch (...) {
+		return false;
+	}
+}
+
 void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 bodyVertexCount,
                      const API_Tranmat& transform, Int32 elementIndex, Int32 localBodyIndex, Model& model,
                      MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices, GroupingMode groupingMode,
                      const std::set<Int32>& clearGlassSurfaceIndices, const GroupDescriptor& elementGroup,
-                     const CornerNormals& cornerNormals)
+                     const CornerNormals& cornerNormals, const ModelerAPI::MeshBody* modelerBody,
+                     const ModelerAPI::Polygon* modelerPolygon)
 {
 	const auto polygonContours = GetPolygonContours (polygon, bodyVertexCount);
 	if (polygonContours.empty ())
@@ -1077,8 +1102,9 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 			parameters.pgonIndex = polygonIndex;
 			parameters.surfacePoint = {vertex.x, vertex.y, vertex.z};
 			API_UVCoord uv {};
-			if (elementIndex >= 0 && localBodyIndex >= 0 &&
-			    ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)
+			const bool hasModelerUv = GetModelerTextureCoordinate (modelerBody, modelerPolygon, vertexIndex, uv);
+			if (hasModelerUv || (elementIndex >= 0 && localBodyIndex >= 0 &&
+			                     ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError))
 				model.textureCoordinates.push_back (
 				    ApplyArchicadTextureTransform (uv, model.materials[materialIndex].texture));
 			else
@@ -1092,7 +1118,8 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndices, GroupIndexMap& groupIndices,
                   GroupingMode groupingMode, const GroupDescriptor& elementGroup,
                   const std::set<Int32>& clearGlassSurfaceIndices, ExportStatistics& statistics,
-                  Int32& skippedPolygonCount, std::string& lastPolygonError)
+                  Int32& skippedPolygonCount, std::string& lastPolygonError,
+                  const ModelerAPI::Element* modelerElement)
 {
 	API_Component3D component {};
 	component.header.typeID = API_BodyID;
@@ -1105,6 +1132,19 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 	const Int32 localBodyIndex = component.body.head.bodyIndex - 1;
 	const Int32 polygonCount = component.body.nPgon;
 	const Int32 bodyVertexCount = component.body.nVert;
+	ModelerAPI::MeshBody modelerBody;
+	const ModelerAPI::MeshBody* modelerBodyPtr = nullptr;
+	if (modelerElement != nullptr) {
+		try {
+			const Int32 modelerBodyIndex = component.body.head.bodyIndex;
+			if (modelerBodyIndex >= 1 && modelerBodyIndex <= modelerElement->GetTessellatedBodyCount ()) {
+				modelerElement->GetTessellatedBody (modelerBodyIndex, &modelerBody);
+				modelerBodyPtr = &modelerBody;
+			}
+		} catch (...) {
+			modelerBodyPtr = nullptr;
+		}
+	}
 	CornerNormals cornerNormals;
 	if ((component.body.status & APIBody_Curved) != 0)
 		cornerNormals = CalculateBodyCornerNormals (bodyVertexCount, polygonCount, component.body.nEdge);
@@ -1118,10 +1158,20 @@ void CollectBody (Int32 bodyIndex, Model& model, MaterialIndexMap& materialIndic
 			++statistics.invisiblePolygonCount;
 			continue;
 		}
+		ModelerAPI::Polygon modelerPolygon;
+		const ModelerAPI::Polygon* modelerPolygonPtr = nullptr;
+		if (modelerBodyPtr != nullptr && polygonIndex <= modelerBodyPtr->GetPolygonCount ()) {
+			try {
+				modelerBodyPtr->GetPolygon (polygonIndex, &modelerPolygon);
+				modelerPolygonPtr = &modelerPolygon;
+			} catch (...) {
+				modelerPolygonPtr = nullptr;
+			}
+		}
 		try {
 			CollectPolygon (polygon, polygonIndex, bodyVertexCount, transform, elementIndex, localBodyIndex, model,
 			                materialIndices, groupIndices, groupingMode, clearGlassSurfaceIndices, elementGroup,
-			                cornerNormals);
+			                cornerNormals, modelerBodyPtr, modelerPolygonPtr);
 		} catch (const GlbGeometry::DegeneratePolygon&) {
 			// GDL objects commonly contain intentional zero-area helper polygons.
 			// They have no visible surface and can be omitted without data loss.
@@ -1141,7 +1191,8 @@ std::size_t CountTriangles (const Model& model)
 	return count;
 }
 
-void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, MaterialIndexMap& materialIndices,
+void CollectElement (const VisibleBodyGroup& visibleBodyGroup, const ModelerAPI::Model& sightModel, Model& model,
+                     MaterialIndexMap& materialIndices,
                      GroupIndexMap& groupIndices, GroupingMode groupingMode,
                      const std::set<Int32>& clearGlassSurfaceIndices, ExportStatistics& statistics)
 {
@@ -1151,12 +1202,25 @@ void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, Mat
 	const GroupDescriptor elementGroup = GetElementGroup (groupingMode, element);
 	const CollectionCheckpoint checkpoint (model);
 	try {
+		ModelerAPI::Element modelerElement;
+		const ModelerAPI::Element* modelerElementPtr = nullptr;
+		try {
+			const auto modelerElementIndex = sightModel.GetElementIndex (APIGuid2GSGuid (element.guid));
+			if (modelerElementIndex.has_value ()) {
+				sightModel.GetElement (*modelerElementIndex, &modelerElement);
+				if (!modelerElement.IsInvalid ())
+					modelerElementPtr = &modelerElement;
+			}
+		} catch (...) {
+			modelerElementPtr = nullptr;
+		}
 		Int32 skippedPolygonCount = 0;
 		std::string lastPolygonError;
 		const std::size_t trianglesBefore = CountTriangles (model);
 		for (Int32 bodyIndex : visibleBodyGroup.bodyIndices)
 			CollectBody (bodyIndex, model, materialIndices, groupIndices, groupingMode, elementGroup,
-			             clearGlassSurfaceIndices, statistics, skippedPolygonCount, lastPolygonError);
+			             clearGlassSurfaceIndices, statistics, skippedPolygonCount, lastPolygonError,
+			             modelerElementPtr);
 		if (CountTriangles (model) == trianglesBefore)
 			++statistics.emptyElementCount;
 		if (skippedPolygonCount > 0) {
@@ -1178,6 +1242,10 @@ void CollectElement (const VisibleBodyGroup& visibleBodyGroup, Model& model, Mat
 bool CollectMesh (Model& model, GroupingMode groupingMode, const std::set<Int32>& clearGlassSurfaceIndices,
                   ExportStatistics& statistics)
 {
+	ModelerAPI::Model sightModel;
+	if (ACAPI_Sight_GetSelectedSightModel (sightModel) != NoError)
+		return false;
+
 	Int32 visibleBodyCount = 0;
 	if (ACAPI_ModelAccess_GetNum (API_BodyID, &visibleBodyCount) != NoError)
 		return false;
@@ -1186,7 +1254,7 @@ bool CollectMesh (Model& model, GroupingMode groupingMode, const std::set<Int32>
 	GroupIndexMap groupIndices;
 	const std::vector<VisibleBodyGroup> visibleBodyGroups = GetVisibleBodyGroups (visibleBodyCount);
 	for (const VisibleBodyGroup& group : visibleBodyGroups)
-		CollectElement (group, model, materialIndices, groupIndices, groupingMode, clearGlassSurfaceIndices,
+		CollectElement (group, sightModel, model, materialIndices, groupIndices, groupingMode, clearGlassSurfaceIndices,
 		                statistics);
 	return !model.positions.empty () && !model.materials.empty () && !model.groups.empty ();
 }

@@ -27,6 +27,12 @@ SetPortableTestCompilerOptions (DropViewMaterialConversionTests)
 
 add_test (NAME material_conversion COMMAND DropViewMaterialConversionTests)
 
+add_executable (DropViewTextureCoordinateTests texture_coordinates.cpp)
+target_include_directories (DropViewTextureCoordinateTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../Src")
+SetPortableTestCompilerOptions (DropViewTextureCoordinateTests)
+
+add_test (NAME texture_coordinates COMMAND DropViewTextureCoordinateTests)
+
 add_library (DropViewGlbWriter STATIC ../Src/GlbWriter.cpp)
 target_include_directories (DropViewGlbWriter PUBLIC "${CMAKE_CURRENT_LIST_DIR}/../Src")
 SetPortableTestCompilerOptions (DropViewGlbWriter)
