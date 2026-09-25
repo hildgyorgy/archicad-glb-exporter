@@ -24,6 +24,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -496,14 +497,29 @@ void SetArchicadWindowMetadata (const API_3DWindowInfo& window, InitialView& vie
 	view.archicadZoomDisplacementY = window.zoomDispY;
 }
 
-InitialView CollectInitialView (const Model& model)
-{
+struct Active3DViewSettings {
 	API_3DProjectionInfo projection {};
-	if (ACAPI_View_Get3DProjectionSets (&projection) != NoError)
-		throw std::runtime_error ("Cannot read the active 3D projection");
 	API_3DWindowInfo window {};
-	if (ACAPI_View_Get3DWindowSets (&window) != NoError)
-		throw std::runtime_error ("Cannot read the active 3D window settings");
+};
+
+Active3DViewSettings ReadActive3DViewSettings ()
+{
+	Active3DViewSettings settings;
+	const GSErrCode projectionError = ACAPI_View_Get3DProjectionSets (&settings.projection);
+	if (projectionError != NoError)
+		throw std::runtime_error ("Cannot read the active 3D projection (error " +
+		                          std::to_string (projectionError) + ")");
+	const GSErrCode windowError = ACAPI_View_Get3DWindowSets (&settings.window);
+	if (windowError != NoError)
+		throw std::runtime_error ("Cannot read the active 3D window settings (error " +
+		                          std::to_string (windowError) + ")");
+	return settings;
+}
+
+InitialView CollectInitialView (const Model& model, const Active3DViewSettings& settings)
+{
+	const API_3DProjectionInfo& projection = settings.projection;
+	const API_3DWindowInfo& window = settings.window;
 
 	InitialView view;
 	SetArchicadWindowMetadata (window, view);
@@ -1189,6 +1205,15 @@ WriteGlbResult WriteGlb (const IO::Location& location, const Model& model)
 
 void ExportActive3DWindowToGlb ()
 {
+	std::optional<Active3DViewSettings> activeViewSettings;
+	std::string initialViewStatus;
+	try {
+		// Capture this before opening either modal dialog and before model traversal can alter Archicad's context.
+		activeViewSettings = ReadActive3DViewSettings ();
+	} catch (const std::exception& error) {
+		initialViewStatus = std::string ("omitted: ") + error.what ();
+	}
+
 	std::vector<ClearGlassCandidate> clearGlassCandidates;
 	try {
 		Scoped3DWindowSight sight;
@@ -1242,14 +1267,13 @@ void ExportActive3DWindowToGlb ()
 			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
 			return;
 		}
-		try {
-			model.initialView = CollectInitialView (model);
-		} catch (const std::exception& error) {
-			ACAPI_WriteReport (
-			    GS::UniString::Printf (
-			        "The active 3D viewpoint could not be stored (%s). Geometry export will continue without a camera.",
-			        error.what ()),
-			    false);
+		if (activeViewSettings.has_value ()) {
+			try {
+				model.initialView = CollectInitialView (model, *activeViewSettings);
+				initialViewStatus = "exported";
+			} catch (const std::exception& error) {
+				initialViewStatus = std::string ("omitted: ") + error.what ();
+			}
 		}
 	} catch (const std::exception& error) {
 		ACAPI_WriteReport (GS::UniString::Printf ("Geometry processing failed: %s. No GLB was created.", error.what ()),
@@ -1264,24 +1288,23 @@ void ExportActive3DWindowToGlb ()
 		return;
 	}
 	if (writeResult.omittedInitialView) {
-		ACAPI_WriteReport (
-		    GS::UniString::Printf (
-		        "The GLB was written, but the initial viewpoint was omitted because its camera data was invalid: %s.",
-		        writeResult.message.c_str ()),
-		    false);
+		initialViewStatus = std::string ("omitted: ") + writeResult.message;
 	}
 	const Int32 problemCount = statistics.emptyElementCount + statistics.failedElementCount;
+	const GS::UniString viewReport =
+	    GS::UniString::Printf ("\nInitial viewpoint: %s", initialViewStatus.c_str ());
 	if (problemCount == 0)
 		ACAPI_WriteReport (
 		    GS::UniString::Printf (
 		        "GLB export complete.\nFailed or skipped elements: 0\nInvisible Archicad polygons omitted: %d",
-		        statistics.invisiblePolygonCount),
+		        statistics.invisiblePolygonCount) +
+		        viewReport,
 		    true);
 	else
 		ACAPI_WriteReport (
 		    GS::UniString::Printf (
 		        "GLB export complete.\nFailed or skipped elements: %d\nInvisible Archicad polygons omitted: %d",
 		        problemCount, statistics.invisiblePolygonCount) +
-		        statistics.elementReport,
+		        viewReport + statistics.elementReport,
 		    true);
 }
