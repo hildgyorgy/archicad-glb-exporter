@@ -2,6 +2,7 @@
 #include "MaterialConversion.hpp"
 
 #include <fstream>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -13,6 +14,12 @@ template <class Operation> void RequireFailure (Operation operation, const char*
 		return;
 	}
 	throw std::runtime_error (message);
+}
+
+void RequireNear (double actual, double expected, const char* message)
+{
+	if (std::abs (actual - expected) > 1.0e-6)
+		throw std::runtime_error (message);
 }
 
 int main (int argumentCount, char** arguments)
@@ -116,11 +123,18 @@ int main (int argumentCount, char** arguments)
 	model.initialView->archicadZoomScaleY = 1.5;
 	model.initialView->archicadZoomDisplacementX = 12.0;
 	model.initialView->archicadZoomDisplacementY = -8.0;
-	model.sun = DropView::Glb::SunSettings {};
-	model.sun->azimuthRadians = 0.0;
-	model.sun->altitudeRadians = 0.0;
-	model.sun->directionToSun = {1.0f, 0.0f, 0.0f};
-	model.sun->lightDirection = {-1.0f, 0.0f, 0.0f};
+	model.sun = DropView::Glb::ConvertArchicadSunAngles (240.0, 35.0);
+	RequireNear (model.sun->azimuthRadians, 4.1887902047863905, "sun azimuth was not converted to radians");
+	RequireNear (model.sun->altitudeRadians, 0.6108652381980153, "sun altitude was not converted to radians");
+	RequireNear (model.sun->directionToSun.x, -0.4095760221444957, "sun X direction is incorrect");
+	RequireNear (model.sun->directionToSun.y, 0.573576436351046, "sun must be above the horizon");
+	RequireNear (model.sun->directionToSun.z, 0.7094064799162225, "sun Z direction is incorrect");
+	RequireNear (model.sun->lightDirection.x, -model.sun->directionToSun.x,
+	             "sunlight X direction is not opposite");
+	RequireNear (model.sun->lightDirection.y, -model.sun->directionToSun.y,
+	             "sunlight Y direction is not opposite");
+	RequireNear (model.sun->lightDirection.z, -model.sun->directionToSun.z,
+	             "sunlight Z direction is not opposite");
 	model.sun->positionByDate = true;
 	model.sun->year = 2026;
 	model.sun->month = 9;

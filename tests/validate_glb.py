@@ -70,9 +70,17 @@ def main() -> None:
     require(archicad_view["zoomDisplacement"] == [12.0, -8.0], "Archicad 3D zoom displacement changed")
 
     sun = document["scenes"][0]["extras"]["dropView"]["sun"]
-    require(sun["azimuth"] == 0.0 and sun["altitude"] == 0.0, "sun angles changed")
-    require(sun["directionToSun"] == [1.0, 0.0, 0.0], "sun direction changed")
-    require(sun["lightDirection"] == [-1.0, 0.0, 0.0], "sunlight direction changed")
+    require(math.isclose(sun["azimuth"], math.radians(240.0), abs_tol=0.000001),
+            "sun azimuth is not in radians")
+    require(math.isclose(sun["altitude"], math.radians(35.0), abs_tol=0.000001),
+            "sun altitude is not in radians")
+    expected_to_sun = [-0.4095760221444957, 0.573576436351046, 0.7094064799162225]
+    require(all(math.isclose(actual, expected, abs_tol=0.000001)
+                for actual, expected in zip(sun["directionToSun"], expected_to_sun)),
+            "sun direction changed")
+    require(all(math.isclose(actual, -expected, abs_tol=0.000001)
+                for actual, expected in zip(sun["lightDirection"], expected_to_sun)),
+            "sunlight direction is not opposite")
     require(sun["positionMode"] == "dateTime", "sun position mode changed")
     require(sun["dateTime"] == {
         "year": 2026,

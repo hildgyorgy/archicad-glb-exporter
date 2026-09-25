@@ -621,9 +621,7 @@ SunSettings CollectSunSettings (const Active3DViewSettings& settings)
 	const API_SunAngleSettings& source = settings.projection.isPersp
 	                                               ? settings.projection.u.persp.sunAngSets
 	                                               : settings.projection.u.axono.sunAngSets;
-	SunSettings sun;
-	sun.azimuthRadians = source.sunAzimuth;
-	sun.altitudeRadians = source.sunAltitude;
+	SunSettings sun = DropView::Glb::ConvertArchicadSunAngles (source.sunAzimuth, source.sunAltitude);
 	sun.positionByDate = source.sunPosOpt == API_SunPosition_GivenByDate;
 	sun.year = source.year;
 	sun.month = source.month;
@@ -633,14 +631,6 @@ SunSettings CollectSunSettings (const Active3DViewSettings& settings)
 	sun.second = source.second;
 	sun.daylightSaving = source.summerTime;
 
-	if (!std::isfinite (sun.azimuthRadians) || !std::isfinite (sun.altitudeRadians))
-		throw std::runtime_error ("The active 3D view has invalid sun angles");
-	const double horizontal = std::cos (sun.altitudeRadians);
-	// Archicad azimuth zero points East. Convert its Z-up coordinates to glTF's Y-up coordinates.
-	sun.directionToSun = Normalize ({static_cast<float> (horizontal * std::cos (sun.azimuthRadians)),
-	                                 static_cast<float> (std::sin (sun.altitudeRadians)),
-	                                 static_cast<float> (-horizontal * std::sin (sun.azimuthRadians))});
-	sun.lightDirection = Scale (sun.directionToSun, -1.0);
 	return sun;
 }
 

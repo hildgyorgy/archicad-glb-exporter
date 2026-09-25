@@ -289,6 +289,27 @@ std::vector<PackedGroup> PackGroups (const Model& model)
 
 } // namespace
 
+SunSettings ConvertArchicadSunAngles (double azimuthDegrees, double altitudeDegrees)
+{
+	constexpr double Pi = 3.14159265358979323846;
+	constexpr double DegreesToRadians = Pi / 180.0;
+	if (!std::isfinite (azimuthDegrees) || !std::isfinite (altitudeDegrees))
+		throw std::invalid_argument ("Archicad sun angles must be finite");
+
+	SunSettings sun;
+	sun.azimuthRadians = azimuthDegrees * DegreesToRadians;
+	sun.altitudeRadians = altitudeDegrees * DegreesToRadians;
+	const double horizontal = std::cos (sun.altitudeRadians);
+	// Archicad's polar coordinates use East as azimuth zero. Convert Z-up Archicad coordinates to Y-up glTF.
+	sun.directionToSun = Normalize (
+	    {static_cast<float> (horizontal * std::cos (sun.azimuthRadians)),
+	     static_cast<float> (std::sin (sun.altitudeRadians)),
+	     static_cast<float> (-horizontal * std::sin (sun.azimuthRadians))},
+	    "Direction toward the sun");
+	sun.lightDirection = {-sun.directionToSun.x, -sun.directionToSun.y, -sun.directionToSun.z};
+	return sun;
+}
+
 std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 {
 	if (model.materials.empty ())

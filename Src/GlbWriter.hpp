@@ -93,6 +93,8 @@ struct SunSettings {
 	bool daylightSaving = false;
 };
 
+SunSettings ConvertArchicadSunAngles (double azimuthDegrees, double altitudeDegrees);
+
 struct InitialView {
 	CameraProjection projection = CameraProjection::Perspective;
 	Vec3 position {0.0f, 0.0f, 1.0f};
