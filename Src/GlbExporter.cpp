@@ -532,12 +532,23 @@ InitialView CollectInitialView (const Model& model)
 		view.archicadProjectionMatrix[index] = axonometry.tranmat.tmx[index];
 		view.archicadInverseProjectionMatrix[index] = axonometry.invtranmat.tmx[index];
 	}
-	const Vec3 right = Normalize (ConvertArchicadPoint (axonometry.invtranmat.tmx[0], axonometry.invtranmat.tmx[4],
-	                                                    axonometry.invtranmat.tmx[8]));
-	const Vec3 up = Normalize (ConvertArchicadPoint (axonometry.invtranmat.tmx[1], axonometry.invtranmat.tmx[5],
-	                                                 axonometry.invtranmat.tmx[9]));
+	const Vec3 sourceRight = Normalize (ConvertArchicadPoint (
+	    axonometry.invtranmat.tmx[0], axonometry.invtranmat.tmx[4], axonometry.invtranmat.tmx[8]));
+	const Vec3 sourceUp = Normalize (ConvertArchicadPoint (
+	    axonometry.invtranmat.tmx[1], axonometry.invtranmat.tmx[5], axonometry.invtranmat.tmx[9]));
 	const Vec3 backward = Normalize (ConvertArchicadPoint (axonometry.invtranmat.tmx[2], axonometry.invtranmat.tmx[6],
 	                                                       axonometry.invtranmat.tmx[10]));
+	// Archicad's axonometric transform may include projection scale or shear. glTF cameras accept only a rigid
+	// transform, so derive a stable orthonormal camera frame while preserving the original matrices in extras.
+	Vec3 rightCandidate = Subtract (sourceRight, Scale (backward, Dot (sourceRight, backward)));
+	if (Length (rightCandidate) <= 1.0e-9)
+		rightCandidate = Cross (sourceUp, backward);
+	Vec3 right = Normalize (rightCandidate);
+	Vec3 up = Normalize (Cross (backward, right));
+	if (Dot (up, sourceUp) < 0.0) {
+		right = Scale (right, -1.0);
+		up = Scale (up, -1.0);
+	}
 	Vec3 minimum = model.positions.front ();
 	Vec3 maximum = minimum;
 	for (const Vec3& point : model.positions) {
@@ -1123,21 +1134,55 @@ bool CollectMesh (Model& model, GroupingMode groupingMode, const std::set<Int32>
 	return !model.positions.empty () && !model.materials.empty () && !model.groups.empty ();
 }
 
-bool WriteGlb (const IO::Location& location, const Model& model)
+struct WriteGlbResult {
+	bool succeeded = false;
+	bool omittedInitialView = false;
+	std::string message;
+};
+
+WriteGlbResult WriteGlb (const IO::Location& location, const Model& model)
 {
 	std::vector<char> glb;
 	try {
 		glb = DropView::Glb::BuildBinary (model, "Drop & View GLB Exporter v" DROPVIEW_VERSION);
-	} catch (const std::exception&) {
-		return false;
+	} catch (const std::exception& initialError) {
+		if (!model.initialView.has_value ())
+			return {false, false, initialError.what ()};
+
+		// A camera conversion must never prevent the already collected geometry from being exported. Keep the
+		// exact Archicad projection metadata out only for this exceptional view and report the concrete reason.
+		Model modelWithoutInitialView = model;
+		modelWithoutInitialView.initialView.reset ();
+		try {
+			glb = DropView::Glb::BuildBinary (modelWithoutInitialView,
+			                                      "Drop & View GLB Exporter v" DROPVIEW_VERSION);
+		} catch (const std::exception& fallbackError) {
+			return {false, false,
+			        std::string ("GLB generation failed: ") + initialError.what () +
+			            "; retry without the initial view also failed: " + fallbackError.what ()};
+		}
+		WriteGlbResult result;
+		result.omittedInitialView = true;
+		result.message = initialError.what ();
+		IO::File file (location, IO::File::Create);
+		if (file.Open (IO::File::WriteEmptyMode) != NoError)
+			return {false, true, "The destination file could not be opened"};
+		if (glb.size () > std::numeric_limits<USize>::max ())
+			return {false, true, "The generated GLB is too large for the file writer"};
+		if (file.WriteBin (glb.data (), static_cast<USize> (glb.size ())) != NoError)
+			return {false, true, "Writing data to the destination file failed"};
+		result.succeeded = true;
+		return result;
 	}
 
 	IO::File file (location, IO::File::Create);
 	if (file.Open (IO::File::WriteEmptyMode) != NoError)
-		return false;
+		return {false, false, "The destination file could not be opened"};
 	if (glb.size () > std::numeric_limits<USize>::max ())
-		return false;
-	return file.WriteBin (glb.data (), static_cast<USize> (glb.size ())) == NoError;
+		return {false, false, "The generated GLB is too large for the file writer"};
+	if (file.WriteBin (glb.data (), static_cast<USize> (glb.size ())) != NoError)
+		return {false, false, "Writing data to the destination file failed"};
+	return {true, false, {}};
 }
 
 } // namespace
@@ -1212,9 +1257,18 @@ void ExportActive3DWindowToGlb ()
 		return;
 	}
 
-	if (!WriteGlb (location, model)) {
-		ACAPI_WriteReport ("Writing the GLB file failed.", true);
+	const WriteGlbResult writeResult = WriteGlb (location, model);
+	if (!writeResult.succeeded) {
+		ACAPI_WriteReport (
+		    GS::UniString::Printf ("Writing the GLB file failed: %s.", writeResult.message.c_str ()), true);
 		return;
+	}
+	if (writeResult.omittedInitialView) {
+		ACAPI_WriteReport (
+		    GS::UniString::Printf (
+		        "The GLB was written, but the initial viewpoint was omitted because its camera data was invalid: %s.",
+		        writeResult.message.c_str ()),
+		    false);
 	}
 	const Int32 problemCount = statistics.emptyElementCount + statistics.failedElementCount;
 	if (problemCount == 0)
