@@ -1,6 +1,8 @@
 #include "GlbWriter.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <iomanip>
 #include <limits>
@@ -79,6 +81,62 @@ struct TextureBinding {
 	std::size_t materialIndex;
 	std::size_t imageIndex;
 };
+
+struct CameraNodeTransform {
+	std::array<double, 16> matrix;
+};
+
+Vec3 Subtract (const Vec3& left, const Vec3& right)
+{
+	return {left.x - right.x, left.y - right.y, left.z - right.z};
+}
+
+double Length (const Vec3& value)
+{
+	return std::sqrt (static_cast<double> (value.x) * value.x + static_cast<double> (value.y) * value.y +
+	                  static_cast<double> (value.z) * value.z);
+}
+
+Vec3 Normalize (const Vec3& value, const char* description)
+{
+	const double length = Length (value);
+	if (!std::isfinite (length) || length <= 1.0e-9)
+		throw std::invalid_argument (std::string (description) + " has zero length");
+	return {static_cast<float> (value.x / length), static_cast<float> (value.y / length),
+	        static_cast<float> (value.z / length)};
+}
+
+Vec3 Cross (const Vec3& left, const Vec3& right)
+{
+	return {left.y * right.z - left.z * right.y, left.z * right.x - left.x * right.z,
+	        left.x * right.y - left.y * right.x};
+}
+
+CameraNodeTransform BuildCameraNodeTransform (const InitialView& view)
+{
+	const Vec3 forward = Normalize (Subtract (view.target, view.position), "Camera viewing direction");
+	const Vec3 right = Normalize (Cross (forward, view.up), "Camera right direction");
+	const Vec3 up = Normalize (Cross (right, forward), "Camera up direction");
+	const Vec3 backward {-forward.x, -forward.y, -forward.z};
+	return {{{right.x, right.y, right.z, 0.0, up.x, up.y, up.z, 0.0, backward.x, backward.y, backward.z, 0.0,
+	          view.position.x, view.position.y, view.position.z, 1.0}}};
+}
+
+void WriteVec3 (std::ostringstream& json, const Vec3& value)
+{
+	json << '[' << value.x << ',' << value.y << ',' << value.z << ']';
+}
+
+template <std::size_t Size> void WriteDoubleArray (std::ostringstream& json, const std::array<double, Size>& values)
+{
+	json << '[';
+	for (std::size_t index = 0; index < Size; ++index) {
+		if (index > 0)
+			json << ',';
+		json << values[index];
+	}
+	json << ']';
+}
 
 std::uint32_t CheckedU32 (std::size_t value, const char* description)
 {
@@ -302,9 +360,33 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	const bool usesTransmission = std::any_of (model.materials.begin (), model.materials.end (),
 	                                           [] (const Material& material) { return material.transmission > 0.0; });
 
+	std::optional<CameraNodeTransform> cameraTransform;
+	if (model.initialView.has_value ()) {
+		const InitialView& view = *model.initialView;
+		if (!std::isfinite (view.nearPlane) || view.nearPlane <= 0.0)
+			throw std::invalid_argument ("Camera near plane must be positive");
+		if (view.projection == CameraProjection::Perspective &&
+		    (!std::isfinite (view.verticalFieldOfViewRadians) || view.verticalFieldOfViewRadians <= 0.0 ||
+		     view.verticalFieldOfViewRadians >= 3.14159265358979323846))
+			throw std::invalid_argument ("Perspective camera field of view is invalid");
+		if (view.projection == CameraProjection::Orthographic &&
+		    (!std::isfinite (view.orthographicXMag) || !std::isfinite (view.orthographicYMag) ||
+		     !std::isfinite (view.farPlane) || view.orthographicXMag <= 0.0 || view.orthographicYMag <= 0.0 ||
+		     view.farPlane <= view.nearPlane))
+			throw std::invalid_argument ("Orthographic camera bounds are invalid");
+		cameraTransform = BuildCameraNodeTransform (view);
+	}
+
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
-	     << EscapeJsonString (generator) << "\"},";
+	     << EscapeJsonString (generator) << '"';
+	if (model.initialView.has_value () || !model.designCredits.empty ()) {
+		json << ",\"extras\":{\"dropView\":{\"schemaVersion\":1";
+		if (!model.designCredits.empty ())
+			json << ",\"designCredits\":\"" << EscapeJsonString (model.designCredits) << '"';
+		json << "}}";
+	}
+	json << "},";
 	if (usesTransmission)
 		json << "\"extensionsUsed\":[\"KHR_materials_transmission\",\"KHR_materials_ior\"],";
 	json << "\"scene\":0,\"scenes\":[{\"nodes\":[";
@@ -313,11 +395,46 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			json << ',';
 		json << i;
 	}
-	json << "]}],\"nodes\":[";
+	if (model.initialView.has_value ()) {
+		if (!model.groups.empty ())
+			json << ',';
+		json << model.groups.size ();
+	}
+	json << ']';
+	if (model.initialView.has_value ()) {
+		const InitialView& view = *model.initialView;
+		json << ",\"extras\":{\"dropView\":{\"initialView\":{\"camera\":0,\"projection\":\""
+		     << (view.projection == CameraProjection::Perspective ? "perspective" : "orthographic")
+		     << "\",\"position\":";
+		WriteVec3 (json, view.position);
+		json << ",\"target\":";
+		WriteVec3 (json, view.target);
+		json << ",\"up\":";
+		WriteVec3 (json, view.up);
+		json << ",\"archicad\":{\"viewCone\":" << view.archicadViewConeRadians
+		     << ",\"rollAngle\":" << view.archicadRollAngleRadians
+		     << ",\"twoPointPerspective\":" << (view.archicadTwoPointPerspective ? "true" : "false")
+		     << ",\"projectionMode\":" << view.archicadProjectionMode << ",\"windowSize\":[" << view.archicadWindowWidth
+		     << ',' << view.archicadWindowHeight << "],\"zoomScale\":[" << view.archicadZoomScaleX << ','
+		     << view.archicadZoomScaleY << "],\"zoomDisplacement\":[" << view.archicadZoomDisplacementX << ','
+		     << view.archicadZoomDisplacementY << "],\"projectionMatrix\":";
+		WriteDoubleArray (json, view.archicadProjectionMatrix);
+		json << ",\"inverseProjectionMatrix\":";
+		WriteDoubleArray (json, view.archicadInverseProjectionMatrix);
+		json << "}}}}";
+	}
+	json << "}],\"nodes\":[";
 	for (std::size_t i = 0; i < model.groups.size (); ++i) {
 		if (i > 0)
 			json << ',';
 		json << "{\"mesh\":" << i << ",\"name\":\"" << EscapeJsonString (model.groups[i].name) << "\"}";
+	}
+	if (model.initialView.has_value ()) {
+		if (!model.groups.empty ())
+			json << ',';
+		json << "{\"camera\":0,\"name\":\"Archicad active 3D view\",\"matrix\":";
+		WriteDoubleArray (json, cameraTransform->matrix);
+		json << '}';
 	}
 	json << "],\"meshes\":[";
 	for (std::size_t i = 0; i < model.groups.size (); ++i) {
@@ -385,6 +502,18 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		     << ",\"clearGlassOverride\":" << (material.clearGlassOverride ? "true" : "false") << "}}}";
 	}
 	json << ']';
+	if (model.initialView.has_value ()) {
+		const InitialView& view = *model.initialView;
+		json << ",\"cameras\":[{\"name\":\"Archicad active 3D view\",\"type\":\""
+		     << (view.projection == CameraProjection::Perspective ? "perspective" : "orthographic") << '\"';
+		if (view.projection == CameraProjection::Perspective)
+			json << ",\"perspective\":{\"yfov\":" << view.verticalFieldOfViewRadians << ",\"znear\":" << view.nearPlane
+			     << '}';
+		else
+			json << ",\"orthographic\":{\"xmag\":" << view.orthographicXMag << ",\"ymag\":" << view.orthographicYMag
+			     << ",\"znear\":" << view.nearPlane << ",\"zfar\":" << view.farPlane << '}';
+		json << "}]";
+	}
 	if (!textureBindings.empty ()) {
 		json << ",\"textures\":[";
 		for (std::size_t i = 0; i < textureBindings.size (); ++i) {

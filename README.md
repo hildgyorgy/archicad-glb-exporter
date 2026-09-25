@@ -22,11 +22,15 @@ The add-on uses the active Archicad 3D window as the source of truth. It exports
 - texture size and rotation;
 - smooth shading for Archicad surfaces marked as curved, while preserving hard edges;
 - active Graphical Overrides;
+- the active perspective or axonometric 3D viewpoint as a standard glTF camera, plus its Archicad target and view settings for Drop & View;
+- optional design credits entered at export time and stored as GLB metadata;
 - selectable surface, layer or element-type GLB mesh groups for visibility controls in compatible viewers.
 
 Supported element families currently include walls, slabs, columns, beams, roofs, shells, stairs, railings, objects, lamps, Morphs, meshes/terrain, curtain walls, windows, doors and skylights.
 
-Lighting, shadows, the Archicad environment, cameras and 2D drawing information are not baked into the GLB.
+Lighting, shadows, the Archicad environment and 2D drawing information are not baked into the GLB. The active camera is stored, but a viewer decides whether to activate it when opening the file.
+
+The optional design-credit text is stored in `asset.extras.dropView.designCredits`. The initial viewpoint is represented by a standard glTF camera and by `scenes[0].extras.dropView.initialView`, which retains the Archicad target and projection details needed by orbit-based viewers.
 
 ### Materials and textures
 
@@ -74,10 +78,11 @@ is multiplied in; alpha remains a linear coverage value.
 3. Choose **Drop & View GLB Exporter > Export active 3D window to GLB…**.
 4. Choose one grouping mode: **Surface / Texture**, **Layer** or **Element type**. The exported GLB contains one
    independently identifiable node and mesh for each group; materials and textures remain attached to their geometry.
-5. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
+5. Optionally enter the design credits to embed in the GLB. The last entered value is remembered for the next export.
+6. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
    properties, while other transparent surfaces retain their original appearance. Adjust the checkboxes when needed.
-6. Choose the destination `.glb` file.
-7. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+7. Choose the destination `.glb` file.
+8. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
 
 Only the selected grouping hierarchy is written to a GLB. Export the same Archicad view again with another mode when a
 different visibility list is required. **Surface / Texture** preserves the original exporter grouping behavior.

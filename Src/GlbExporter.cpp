@@ -33,6 +33,8 @@
 
 namespace {
 
+using DropView::Glb::CameraProjection;
+using DropView::Glb::InitialView;
 using DropView::Glb::Material;
 using DropView::Glb::Model;
 using DropView::Glb::Primitive;
@@ -49,18 +51,43 @@ struct ClearGlassCandidate {
 	bool selected = false;
 };
 
+constexpr Int32 ExportPreferencesVersion = 1;
+
+std::string LoadDesignCreditsPreference ()
+{
+	Int32 version = 0;
+	GSSize size = 0;
+	if (ACAPI_GetPreferences (&version, &size, nullptr) != NoError || version != ExportPreferencesVersion ||
+	    size <= 0 || size > 4096)
+		return {};
+	std::vector<char> bytes (static_cast<std::size_t> (size));
+	if (ACAPI_GetPreferences (&version, &size, bytes.data ()) != NoError || bytes.empty ())
+		return {};
+	const auto terminator = std::find (bytes.begin (), bytes.end (), '\0');
+	return std::string (bytes.begin (), terminator);
+}
+
+void SaveDesignCreditsPreference (const std::string& designCredits)
+{
+	std::vector<char> bytes (designCredits.begin (), designCredits.end ());
+	bytes.push_back ('\0');
+	ACAPI_SetPreferences (ExportPreferencesVersion, static_cast<GSSize> (bytes.size ()), bytes.data ());
+}
+
 class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver, public DG::ListBoxObserver {
 public:
-	explicit ExportOptionsDialog (std::vector<ClearGlassCandidate> candidates)
-	    : DG::ModalDialog (DG::NativePoint (), 760, 326, GS::Guid ()),
+	explicit ExportOptionsDialog (std::vector<ClearGlassCandidate> candidates, const std::string& savedDesignCredits)
+	    : DG::ModalDialog (DG::NativePoint (), 760, 384, GS::Guid ()),
 	      groupingPrompt (GetReference (), DG::Rect (16, 16, 744, 34)),
 	      groupingMode (GetReference (), DG::Rect (16, 38, 744, 60), 8, 4),
-	      glassHeading (GetReference (), DG::Rect (16, 78, 744, 98)),
-	      glassDescription (GetReference (), DG::Rect (16, 100, 744, 138)),
-	      glassList (GetReference (), DG::Rect (16, 142, 744, 274), DG::ListBox::VScroll, DG::ListBox::PartialItems,
+	      creditsPrompt (GetReference (), DG::Rect (16, 76, 744, 94)),
+	      creditsEdit (GetReference (), DG::Rect (16, 96, 744, 120), 512),
+	      glassHeading (GetReference (), DG::Rect (16, 138, 744, 158)),
+	      glassDescription (GetReference (), DG::Rect (16, 160, 744, 198)),
+	      glassList (GetReference (), DG::Rect (16, 202, 744, 332), DG::ListBox::VScroll, DG::ListBox::PartialItems,
 	                 DG::ListBox::NoHeader, 0, DG::ListBox::Frame),
-	      cancelButton (GetReference (), DG::Rect (592, 286, 664, 310)),
-	      okButton (GetReference (), DG::Rect (672, 286, 744, 310)), clearGlassCandidates (std::move (candidates))
+	      cancelButton (GetReference (), DG::Rect (592, 344, 664, 368)),
+	      okButton (GetReference (), DG::Rect (672, 344, 744, 368)), clearGlassCandidates (std::move (candidates))
 	{
 		SetTitle ("GLB export settings");
 		groupingPrompt.SetText ("Group exported model by:");
@@ -69,6 +96,8 @@ public:
 			groupingMode.SetItemText (groupingMode.GetItemCount (), item);
 		}
 		groupingMode.SelectItem (1);
+		creditsPrompt.SetText ("Design credits (optional; stored in the GLB):");
+		creditsEdit.SetText (GS::UniString (savedDesignCredits.c_str (), CC_UTF8));
 		glassHeading.SetText ("Clear glass surfaces");
 		glassDescription.SetText (
 		    "Select the surfaces to export as clear, physically transparent glass. Other transparent surfaces "
@@ -97,6 +126,12 @@ public:
 		okButton.Attach (*this);
 		glassList.Attach (*this);
 		ShowItems ();
+	}
+
+	std::string GetDesignCredits () const
+	{
+		const GS::UniString value = creditsEdit.GetText ();
+		return value.ToCStr (CC_UTF8).Get ();
 	}
 
 	~ExportOptionsDialog ()
@@ -154,6 +189,8 @@ private:
 
 	DG::LeftText groupingPrompt;
 	DG::PopUp groupingMode;
+	DG::LeftText creditsPrompt;
+	DG::TextEdit creditsEdit;
 	DG::LeftText glassHeading;
 	DG::LeftText glassDescription;
 	DG::SingleSelListBox glassList;
@@ -286,9 +323,8 @@ bool IsTiffImage (const std::vector<char>& imageData)
 bool PngHasAlphaChannel (const std::vector<char>& imageData)
 {
 	// The PNG IHDR color type is byte 25. Types 4 and 6 contain alpha.
-	return imageData.size () > 25 &&
-	       static_cast<unsigned char> (imageData[0]) == 0x89 && imageData[1] == 'P' && imageData[2] == 'N' &&
-	       imageData[3] == 'G' &&
+	return imageData.size () > 25 && static_cast<unsigned char> (imageData[0]) == 0x89 && imageData[1] == 'P' &&
+	       imageData[2] == 'N' && imageData[3] == 'G' &&
 	       (static_cast<unsigned char> (imageData[25]) == 4 || static_cast<unsigned char> (imageData[25]) == 6);
 }
 
@@ -377,9 +413,9 @@ void LoadTextureImage (const IO::Location* location, Material& material)
 	// also preserve RGBA coverage on transparent library surfaces whose 3D
 	// material omits those flags (for example chain-link fencing).
 	const bool pngHasAlpha = material.imageMimeType == "image/png" && PngHasAlphaChannel (material.imageData);
-	material.alphaMask = DropView::MaterialConversion::UsesAlphaCutout (
-	    pngHasAlpha, material.texture.useAlpha, material.texture.transparencyPattern,
-	    material.sourceTransparencyPercent);
+	material.alphaMask = DropView::MaterialConversion::UsesAlphaCutout (pngHasAlpha, material.texture.useAlpha,
+	                                                                    material.texture.transparencyPattern,
+	                                                                    material.sourceTransparencyPercent);
 }
 
 Vec3 ConvertPosition (const API_Tranmat& transform, const API_VertType& vertex)
@@ -391,6 +427,143 @@ Vec3 ConvertPosition (const API_Tranmat& transform, const API_VertType& vertex)
 	const double z =
 	    transform.tmx[8] * vertex.x + transform.tmx[9] * vertex.y + transform.tmx[10] * vertex.z + transform.tmx[11];
 	return {static_cast<float> (x), static_cast<float> (z), static_cast<float> (-y)};
+}
+
+Vec3 ConvertArchicadPoint (double x, double y, double z)
+{
+	return {static_cast<float> (x), static_cast<float> (z), static_cast<float> (-y)};
+}
+
+Vec3 Add (const Vec3& left, const Vec3& right)
+{
+	return {left.x + right.x, left.y + right.y, left.z + right.z};
+}
+
+Vec3 Subtract (const Vec3& left, const Vec3& right)
+{
+	return {left.x - right.x, left.y - right.y, left.z - right.z};
+}
+
+Vec3 Scale (const Vec3& value, double scale)
+{
+	return {static_cast<float> (value.x * scale), static_cast<float> (value.y * scale),
+	        static_cast<float> (value.z * scale)};
+}
+
+double Dot (const Vec3& left, const Vec3& right)
+{
+	return static_cast<double> (left.x) * right.x + static_cast<double> (left.y) * right.y +
+	       static_cast<double> (left.z) * right.z;
+}
+
+Vec3 Cross (const Vec3& left, const Vec3& right)
+{
+	return {left.y * right.z - left.z * right.y, left.z * right.x - left.x * right.z,
+	        left.x * right.y - left.y * right.x};
+}
+
+double Length (const Vec3& value)
+{
+	return std::sqrt (Dot (value, value));
+}
+
+Vec3 Normalize (const Vec3& value)
+{
+	const double length = Length (value);
+	if (!std::isfinite (length) || length <= 1.0e-9)
+		throw std::runtime_error ("The active 3D view has an invalid camera direction");
+	return Scale (value, 1.0 / length);
+}
+
+Vec3 CameraUpVector (const Vec3& position, const Vec3& target, double rollAngle)
+{
+	const Vec3 forward = Normalize (Subtract (target, position));
+	Vec3 referenceUp {0.0f, 1.0f, 0.0f};
+	if (std::abs (Dot (forward, referenceUp)) > 0.999)
+		referenceUp = {0.0f, 0.0f, 1.0f};
+	const Vec3 right = Normalize (Cross (forward, referenceUp));
+	const Vec3 upright = Normalize (Cross (right, forward));
+	return Normalize (Add (Scale (upright, std::cos (rollAngle)), Scale (right, std::sin (rollAngle))));
+}
+
+void SetArchicadWindowMetadata (const API_3DWindowInfo& window, InitialView& view)
+{
+	view.archicadWindowWidth = window.hSize;
+	view.archicadWindowHeight = window.vSize;
+	view.archicadZoomScaleX = window.zoomScaleX;
+	view.archicadZoomScaleY = window.zoomScaleY;
+	view.archicadZoomDisplacementX = window.zoomDispX;
+	view.archicadZoomDisplacementY = window.zoomDispY;
+}
+
+InitialView CollectInitialView (const Model& model)
+{
+	API_3DProjectionInfo projection {};
+	if (ACAPI_View_Get3DProjectionSets (&projection) != NoError)
+		throw std::runtime_error ("Cannot read the active 3D projection");
+	API_3DWindowInfo window {};
+	if (ACAPI_View_Get3DWindowSets (&window) != NoError)
+		throw std::runtime_error ("Cannot read the active 3D window settings");
+
+	InitialView view;
+	SetArchicadWindowMetadata (window, view);
+	if (projection.isPersp) {
+		const API_PerspPars& perspective = projection.u.persp;
+		view.projection = CameraProjection::Perspective;
+		view.position = ConvertArchicadPoint (perspective.pos.x, perspective.pos.y, perspective.cameraZ);
+		view.target = ConvertArchicadPoint (perspective.target.x, perspective.target.y, perspective.targetZ);
+		view.up = CameraUpVector (view.position, view.target, perspective.rollAngle);
+		view.archicadViewConeRadians = perspective.viewCone;
+		view.archicadRollAngleRadians = perspective.rollAngle;
+		view.archicadTwoPointPerspective = perspective.isTwoPointPersp;
+		const double aspect = window.hSize > 0 && window.vSize > 0
+		                          ? static_cast<double> (window.hSize) / static_cast<double> (window.vSize)
+		                          : 1.0;
+		view.verticalFieldOfViewRadians =
+		    2.0 * std::atan (std::tan (perspective.viewCone * 0.5) / std::max (aspect, 1.0e-6));
+		view.nearPlane = std::max (0.01, Length (Subtract (view.target, view.position)) * 0.001);
+		return view;
+	}
+
+	const API_AxonoPars& axonometry = projection.u.axono;
+	view.projection = CameraProjection::Orthographic;
+	view.archicadProjectionMode = axonometry.projMod;
+	for (std::size_t index = 0; index < view.archicadProjectionMatrix.size (); ++index) {
+		view.archicadProjectionMatrix[index] = axonometry.tranmat.tmx[index];
+		view.archicadInverseProjectionMatrix[index] = axonometry.invtranmat.tmx[index];
+	}
+	const Vec3 right = Normalize (ConvertArchicadPoint (axonometry.invtranmat.tmx[0], axonometry.invtranmat.tmx[4],
+	                                                    axonometry.invtranmat.tmx[8]));
+	const Vec3 up = Normalize (ConvertArchicadPoint (axonometry.invtranmat.tmx[1], axonometry.invtranmat.tmx[5],
+	                                                 axonometry.invtranmat.tmx[9]));
+	const Vec3 backward = Normalize (ConvertArchicadPoint (axonometry.invtranmat.tmx[2], axonometry.invtranmat.tmx[6],
+	                                                       axonometry.invtranmat.tmx[10]));
+	Vec3 minimum = model.positions.front ();
+	Vec3 maximum = minimum;
+	for (const Vec3& point : model.positions) {
+		minimum.x = std::min (minimum.x, point.x);
+		minimum.y = std::min (minimum.y, point.y);
+		minimum.z = std::min (minimum.z, point.z);
+		maximum.x = std::max (maximum.x, point.x);
+		maximum.y = std::max (maximum.y, point.y);
+		maximum.z = std::max (maximum.z, point.z);
+	}
+	view.target = Scale (Add (minimum, maximum), 0.5);
+	const double diagonal = std::max (Length (Subtract (maximum, minimum)), 1.0);
+	view.position = Add (view.target, Scale (backward, diagonal * 2.0));
+	view.up = up;
+	double halfWidth = 0.0;
+	double halfHeight = 0.0;
+	for (const Vec3& point : model.positions) {
+		const Vec3 offset = Subtract (point, view.target);
+		halfWidth = std::max (halfWidth, std::abs (Dot (offset, right)));
+		halfHeight = std::max (halfHeight, std::abs (Dot (offset, up)));
+	}
+	view.orthographicXMag = std::max (halfWidth * 1.05, 0.5);
+	view.orthographicYMag = std::max (halfHeight * 1.05, 0.5);
+	view.nearPlane = 0.01;
+	view.farPlane = diagonal * 5.0;
+	return view;
 }
 
 Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reverse)
@@ -645,10 +818,8 @@ std::vector<ClearGlassCandidate> CollectClearGlassCandidates ()
 		auto properties = GetMaterialProperties (sourceMaterial);
 		std::unique_ptr<IO::Location> textureLocation (sourceMaterial.texture.fileLoc);
 		properties.usesAlphaCutout = DropView::MaterialConversion::UsesAlphaCutout (
-		    TextureFileHasPngAlpha (textureLocation.get ()),
-		    (sourceMaterial.texture.status & APITxtr_UseAlpha) != 0,
-		    (sourceMaterial.texture.status & APITxtr_TransPattern) != 0,
-		    static_cast<double> (sourceMaterial.transpPc));
+		    TextureFileHasPngAlpha (textureLocation.get ()), (sourceMaterial.texture.status & APITxtr_UseAlpha) != 0,
+		    (sourceMaterial.texture.status & APITxtr_TransPattern) != 0, static_cast<double> (sourceMaterial.transpPc));
 		if (!DropView::MaterialConversion::IsClearGlassCandidate (properties))
 			continue;
 		std::string name = sourceMaterial.head.name;
@@ -677,18 +848,16 @@ Material ReadMaterial (Int32 sourceIndex, bool exportAsClearGlass)
 	material.name = sourceMaterial.head.name;
 	if (material.name.empty ())
 		material.name = "Archicad Surface " + std::to_string (sourceIndex);
-	DropView::MaterialConversion::ApplySurfaceColor (sourceMaterial.surfaceRGB.f_red,
-	                                                 sourceMaterial.surfaceRGB.f_green,
+	DropView::MaterialConversion::ApplySurfaceColor (sourceMaterial.surfaceRGB.f_red, sourceMaterial.surfaceRGB.f_green,
 	                                                 sourceMaterial.surfaceRGB.f_blue, material);
 	material.sourceMaterialType = static_cast<std::int32_t> (sourceMaterial.mtype);
 	material.sourceTransparencyPercent = sourceMaterial.transpPc;
 	material.sourceSpecularPercent = sourceMaterial.specularPc;
 	material.sourceShine = sourceMaterial.shine;
 	material.sourceEmissionAttenuation = sourceMaterial.emissionAtt;
-	DropView::MaterialConversion::ApplyEmissionColor (sourceMaterial.emissionRGB.f_red,
-	                                                  sourceMaterial.emissionRGB.f_green,
-	                                                  sourceMaterial.emissionRGB.f_blue,
-	                                                  sourceMaterial.emissionAtt, material);
+	DropView::MaterialConversion::ApplyEmissionColor (
+	    sourceMaterial.emissionRGB.f_red, sourceMaterial.emissionRGB.f_green, sourceMaterial.emissionRGB.f_blue,
+	    sourceMaterial.emissionAtt, material);
 	material.texture.xSize = sourceMaterial.texture.xSize;
 	material.texture.ySize = sourceMaterial.texture.ySize;
 	material.texture.rotationDegrees = sourceMaterial.texture.rotAng;
@@ -994,11 +1163,13 @@ void ExportActive3DWindowToGlb ()
 		return;
 	}
 
-	ExportOptionsDialog optionsDialog (std::move (clearGlassCandidates));
+	ExportOptionsDialog optionsDialog (std::move (clearGlassCandidates), LoadDesignCreditsPreference ());
 	if (!optionsDialog.Invoke ())
 		return;
 	const GroupingMode groupingMode = optionsDialog.GetGroupingMode ();
 	const std::set<Int32> clearGlassSurfaceIndices = optionsDialog.GetClearGlassSurfaceIndices ();
+	const std::string designCredits = optionsDialog.GetDesignCredits ();
+	SaveDesignCreditsPreference (designCredits);
 
 	// Ask for the destination before potentially expensive stair/railing mesh processing.
 	DG::FileDialog dialog (DG::FileDialog::Save);
@@ -1011,6 +1182,7 @@ void ExportActive3DWindowToGlb ()
 	const IO::Location location = dialog.GetSelectedFile ();
 
 	Model model;
+	model.designCredits = designCredits;
 	ExportStatistics statistics;
 	try {
 		Scoped3DWindowSight sight;
@@ -1024,6 +1196,15 @@ void ExportActive3DWindowToGlb ()
 		if (!CollectMesh (model, groupingMode, clearGlassSurfaceIndices, statistics)) {
 			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
 			return;
+		}
+		try {
+			model.initialView = CollectInitialView (model);
+		} catch (const std::exception& error) {
+			ACAPI_WriteReport (
+			    GS::UniString::Printf (
+			        "The active 3D viewpoint could not be stored (%s). Geometry export will continue without a camera.",
+			        error.what ()),
+			    false);
 		}
 	} catch (const std::exception& error) {
 		ACAPI_WriteReport (GS::UniString::Printf ("Geometry processing failed: %s. No GLB was created.", error.what ()),

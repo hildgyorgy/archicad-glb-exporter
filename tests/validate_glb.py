@@ -32,6 +32,7 @@ def main() -> None:
         output = pathlib.Path(directory) / "writer-test.glb"
         subprocess.run([sys.argv[1], str(output)], check=True)
         data = output.read_bytes()
+        orthographic_data = pathlib.Path(str(output) + ".ortho.glb").read_bytes()
 
     require(len(data) >= 28, "GLB is shorter than its header and two chunk headers")
     magic, version, declared_length = struct.unpack_from("<III", data)
@@ -47,7 +48,55 @@ def main() -> None:
     document = json.loads(data[json_start:json_end].decode("utf-8").rstrip(" \0"))
 
     require(document["asset"]["generator"] == 'Drop & View "writer"\ntest', "generator JSON escaping changed")
-    require(document["scenes"][0]["nodes"] == [0, 1, 2], "scene does not reference every export group exactly once")
+    require(document["asset"]["extras"]["dropView"] == {
+        "designCredits": 'Design: György "George" Hild\nLandscape: Example Studio',
+        "schemaVersion": 1,
+    }, "Drop & View asset metadata changed")
+    require(document["scenes"][0]["nodes"] == [0, 1, 2, 3],
+            "scene does not reference every export group and the initial camera exactly once")
+
+    initial_view = document["scenes"][0]["extras"]["dropView"]["initialView"]
+    require(initial_view["camera"] == 0, "initial-view metadata references the wrong camera")
+    require(initial_view["projection"] == "perspective", "initial-view projection changed")
+    require(initial_view["position"] == [10.0, 8.0, 6.0], "initial-view position changed")
+    require(initial_view["target"] == [2.0, 1.0, -4.0], "initial-view target changed")
+    require(initial_view["up"] == [0.0, 1.0, 0.0], "initial-view up vector changed")
+    archicad_view = initial_view["archicad"]
+    require(archicad_view["viewCone"] == 0.91, "Archicad view cone changed")
+    require(archicad_view["rollAngle"] == 0.12, "Archicad roll angle changed")
+    require(archicad_view["twoPointPerspective"] is True, "Archicad two-point flag changed")
+    require(archicad_view["windowSize"] == [1600, 900], "Archicad 3D window size changed")
+    require(archicad_view["zoomScale"] == [1.25, 1.5], "Archicad 3D zoom scale changed")
+    require(archicad_view["zoomDisplacement"] == [12.0, -8.0], "Archicad 3D zoom displacement changed")
+
+    require(len(document["cameras"]) == 1, "expected one startup camera")
+    camera = document["cameras"][0]
+    require(camera["type"] == "perspective", "startup camera type changed")
+    require(camera["perspective"] == {"yfov": 0.72, "znear": 0.02},
+            "startup perspective camera parameters changed")
+
+    ortho_json_length, ortho_json_type = struct.unpack_from("<II", orthographic_data, 12)
+    require(ortho_json_type == 0x4E4F534A, "orthographic fixture does not start with a JSON chunk")
+    orthographic_document = json.loads(
+        orthographic_data[20:20 + ortho_json_length].decode("utf-8").rstrip(" \0"))
+    require(orthographic_document["asset"]["extras"]["dropView"] == {"schemaVersion": 1},
+            "empty design credits produced incorrect asset metadata")
+    orthographic_camera = orthographic_document["cameras"][0]
+    require(orthographic_camera["type"] == "orthographic", "orthographic camera type changed")
+    require(orthographic_camera["orthographic"] == {
+        "xmag": 12.5,
+        "ymag": 7.25,
+        "znear": 0.1,
+        "zfar": 250.0,
+    }, "orthographic camera parameters changed")
+    ortho_initial_view = orthographic_document["scenes"][0]["extras"]["dropView"]["initialView"]
+    require(ortho_initial_view["projection"] == "orthographic", "orthographic initial-view metadata changed")
+    require(ortho_initial_view["archicad"]["projectionMode"] == 3,
+            "Archicad axonometric projection mode changed")
+    require(ortho_initial_view["archicad"]["projectionMatrix"][0] == 0.5,
+            "Archicad projection matrix changed")
+    require(ortho_initial_view["archicad"]["inverseProjectionMatrix"][0] == 2.0,
+            "Archicad inverse projection matrix changed")
 
     binary_length, binary_type = struct.unpack_from("<II", data, json_end)
     require(binary_type == 0x004E4942, "second chunk is not binary")
@@ -75,9 +124,21 @@ def main() -> None:
         require(required <= views[accessor["bufferView"]]["byteLength"], "accessor exceeds its bufferView")
 
     expected_group_names = ["Layer: Architecture", "Layer: Site", "Layer: Reused material"]
-    require(len(document["nodes"]) == 3, "expected three export-group nodes")
-    require([node["name"] for node in document["nodes"]] == expected_group_names,
+    require(len(document["nodes"]) == 4, "expected three export-group nodes and one camera node")
+    require([node["name"] for node in document["nodes"][:3]] == expected_group_names,
             "export-group node names changed")
+    camera_node = document["nodes"][3]
+    require(camera_node["camera"] == 0, "startup camera node references the wrong camera")
+    require(len(camera_node["matrix"]) == 16, "startup camera transform is not a 4x4 matrix")
+    require(camera_node["matrix"][12:16] == [10.0, 8.0, 6.0, 1.0],
+            "startup camera transform lost its position")
+    expected_forward_unscaled = [-8.0, -7.0, -10.0]
+    expected_forward_length = math.sqrt(sum(value * value for value in expected_forward_unscaled))
+    expected_forward = [value / expected_forward_length for value in expected_forward_unscaled]
+    camera_forward = [-camera_node["matrix"][8], -camera_node["matrix"][9], -camera_node["matrix"][10]]
+    require(all(math.isclose(actual, expected, abs_tol=0.000001)
+                for actual, expected in zip(camera_forward, expected_forward)),
+            "startup camera does not look at its target")
     require(len(document["meshes"]) == 3, "expected three export-group meshes")
     require([mesh["name"] for mesh in document["meshes"]] == expected_group_names,
             "export-group mesh names changed")

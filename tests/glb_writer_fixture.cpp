@@ -40,8 +40,7 @@ int main (int argumentCount, char** arguments)
 	opaqueTextured.imageData = sharedImage;
 	opaqueTextured.imageMimeType = "image/png";
 	// A textured roof keeps a white multiplier even if Archicad has a surface swatch.
-	DropView::MaterialConversion::ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0,
-	                                                 opaqueTextured);
+	DropView::MaterialConversion::ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0, opaqueTextured);
 	opaqueTextured.normalTexture = {normalImage, "image/png"};
 	opaqueTextured.metallicRoughnessTexture = {ormImage, "image/png"};
 	opaqueTextured.occlusionTexture = {ormImage, "image/png"};
@@ -93,13 +92,30 @@ int main (int argumentCount, char** arguments)
 	DropView::Glb::Material beigePlaster;
 	beigePlaster.sourceIndex = 16;
 	beigePlaster.name = "gipsz - szemcsés bézs";
-	DropView::MaterialConversion::ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0,
-	                                                 beigePlaster);
+	DropView::MaterialConversion::ApplySurfaceColor (231.0 / 255.0, 207.0 / 255.0, 171.0 / 255.0, beigePlaster);
 
 	model.materials = {opaqueTextured, clearGlass, tintedGlass, plant, coverageBlend, beigePlaster};
-	model.groups = {{"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}, {4, {0, 1, 2}}, {5, {0, 1, 2}}}},
-	                {"layer:2", "Layer: Site", {{2, {6, 7, 8}}, {3, {9, 10, 11}}}},
-	                {"layer:3", "Layer: Reused material", {{0, {0, 1, 2}}}}};
+	model.groups = {
+	    {"layer:1", "Layer: Architecture", {{0, {0, 1, 2}}, {1, {3, 4, 5}}, {4, {0, 1, 2}}, {5, {0, 1, 2}}}},
+	    {"layer:2", "Layer: Site", {{2, {6, 7, 8}}, {3, {9, 10, 11}}}},
+	    {"layer:3", "Layer: Reused material", {{0, {0, 1, 2}}}}};
+	model.designCredits = "Design: György \"George\" Hild\nLandscape: Example Studio";
+	model.initialView = DropView::Glb::InitialView {};
+	model.initialView->projection = DropView::Glb::CameraProjection::Perspective;
+	model.initialView->position = {10.0f, 8.0f, 6.0f};
+	model.initialView->target = {2.0f, 1.0f, -4.0f};
+	model.initialView->up = {0.0f, 1.0f, 0.0f};
+	model.initialView->verticalFieldOfViewRadians = 0.72;
+	model.initialView->nearPlane = 0.02;
+	model.initialView->archicadViewConeRadians = 0.91;
+	model.initialView->archicadRollAngleRadians = 0.12;
+	model.initialView->archicadTwoPointPerspective = true;
+	model.initialView->archicadWindowWidth = 1600;
+	model.initialView->archicadWindowHeight = 900;
+	model.initialView->archicadZoomScaleX = 1.25;
+	model.initialView->archicadZoomScaleY = 1.5;
+	model.initialView->archicadZoomDisplacementX = 12.0;
+	model.initialView->archicadZoomDisplacementY = -8.0;
 	const std::vector<char> glb = DropView::Glb::BuildBinary (model, "Drop & View \"writer\"\ntest");
 
 	RequireFailure ([] { (void)DropView::Glb::BuildBinary ({}, "empty"); }, "Model without materials was accepted");
@@ -139,5 +155,23 @@ int main (int argumentCount, char** arguments)
 	output.write (glb.data (), static_cast<std::streamsize> (glb.size ()));
 	if (!output)
 		throw std::runtime_error ("Cannot write GLB fixture");
+
+	model.designCredits.clear ();
+	model.initialView->projection = DropView::Glb::CameraProjection::Orthographic;
+	model.initialView->orthographicXMag = 12.5;
+	model.initialView->orthographicYMag = 7.25;
+	model.initialView->nearPlane = 0.1;
+	model.initialView->farPlane = 250.0;
+	model.initialView->archicadProjectionMode = 3;
+	model.initialView->archicadProjectionMatrix[0] = 0.5;
+	model.initialView->archicadInverseProjectionMatrix[0] = 2.0;
+	const std::vector<char> orthographicGlb =
+	    DropView::Glb::BuildBinary (model, "Drop & View orthographic writer test");
+	std::ofstream orthographicOutput (std::string (arguments[1]) + ".ortho.glb", std::ios::binary | std::ios::trunc);
+	if (!orthographicOutput)
+		throw std::runtime_error ("Cannot create orthographic GLB fixture");
+	orthographicOutput.write (orthographicGlb.data (), static_cast<std::streamsize> (orthographicGlb.size ()));
+	if (!orthographicOutput)
+		throw std::runtime_error ("Cannot write orthographic GLB fixture");
 	return 0;
 }

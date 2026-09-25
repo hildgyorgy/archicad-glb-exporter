@@ -1,7 +1,9 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -74,12 +76,40 @@ struct Group {
 	std::vector<Primitive> primitives;
 };
 
+enum class CameraProjection { Perspective, Orthographic };
+
+struct InitialView {
+	CameraProjection projection = CameraProjection::Perspective;
+	Vec3 position {0.0f, 0.0f, 1.0f};
+	Vec3 target {0.0f, 0.0f, 0.0f};
+	Vec3 up {0.0f, 1.0f, 0.0f};
+	double verticalFieldOfViewRadians = 0.7853981633974483;
+	double orthographicXMag = 1.0;
+	double orthographicYMag = 1.0;
+	double nearPlane = 0.01;
+	double farPlane = 1000.0;
+	double archicadViewConeRadians = 0.0;
+	double archicadRollAngleRadians = 0.0;
+	bool archicadTwoPointPerspective = false;
+	short archicadProjectionMode = 0;
+	short archicadWindowWidth = 0;
+	short archicadWindowHeight = 0;
+	double archicadZoomScaleX = 1.0;
+	double archicadZoomScaleY = 1.0;
+	double archicadZoomDisplacementX = 0.0;
+	double archicadZoomDisplacementY = 0.0;
+	std::array<double, 12> archicadProjectionMatrix {};
+	std::array<double, 12> archicadInverseProjectionMatrix {};
+};
+
 struct Model {
 	std::vector<Vec3> positions;
 	std::vector<Vec3> normals;
 	std::vector<Vec2> textureCoordinates;
 	std::vector<Material> materials;
 	std::vector<Group> groups;
+	std::string designCredits;
+	std::optional<InitialView> initialView;
 };
 
 std::vector<char> BuildBinary (const Model& model, const std::string& generator);
