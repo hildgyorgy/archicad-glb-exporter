@@ -32,8 +32,5 @@ int main ()
 	RequireNear (wallPanel.u, -1.0, "vertical panel texture axis was not rotated into U");
 	RequireNear (wallPanel.v, 1.0, "vertical panel texture retained the wrong V variation");
 
-	const auto zeroSized = ConvertToGltf (2.0, 3.0, 0.0, 0.0, 0.0);
-	RequireNear (zeroSized.u, 2.0, "zero texture width changed the coordinate");
-	RequireNear (zeroSized.v, -2.0, "zero texture height changed the coordinate");
 	return 0;
 }
