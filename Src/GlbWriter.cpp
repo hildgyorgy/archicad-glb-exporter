@@ -368,7 +368,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		if (view.projection == CameraProjection::Perspective &&
 		    (!std::isfinite (view.verticalFieldOfViewRadians) || view.verticalFieldOfViewRadians <= 0.0 ||
 		     view.verticalFieldOfViewRadians >= 3.14159265358979323846))
-			throw std::invalid_argument ("Perspective camera field of view is invalid");
+			throw std::invalid_argument ("Perspective initial-view field of view is invalid");
 		if (view.projection == CameraProjection::Orthographic &&
 		    (!std::isfinite (view.orthographicXMag) || !std::isfinite (view.orthographicYMag) ||
 		     !std::isfinite (view.farPlane) || view.orthographicXMag <= 0.0 || view.orthographicYMag <= 0.0 ||

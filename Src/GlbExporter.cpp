@@ -487,6 +487,29 @@ Vec3 CameraUpVector (const Vec3& position, const Vec3& target, double rollAngle)
 	return Normalize (Add (Scale (upright, std::cos (rollAngle)), Scale (right, std::sin (rollAngle))));
 }
 
+double VerticalFieldOfView (double archicadViewCone, double aspect)
+{
+	constexpr double Pi = 3.14159265358979323846;
+	constexpr double DegreesToRadians = Pi / 180.0;
+	constexpr double DefaultHorizontalFieldOfView = 60.0 * DegreesToRadians;
+
+	double horizontalFieldOfView = std::abs (archicadViewCone);
+	// The API normally returns radians. Some projects/versions have produced a degree-like value; accepting that
+	// representation is preferable to dropping the complete active viewpoint from an otherwise valid export.
+	if (std::isfinite (horizontalFieldOfView) && horizontalFieldOfView >= Pi && horizontalFieldOfView < 180.0)
+		horizontalFieldOfView *= DegreesToRadians;
+	if (!std::isfinite (horizontalFieldOfView) || horizontalFieldOfView <= 1.0e-6 ||
+	    horizontalFieldOfView >= Pi)
+		horizontalFieldOfView = DefaultHorizontalFieldOfView;
+
+	const double validAspect = std::isfinite (aspect) && aspect > 1.0e-6 ? aspect : 1.0;
+	const double verticalFieldOfView =
+	    2.0 * std::atan (std::tan (horizontalFieldOfView * 0.5) / validAspect);
+	if (!std::isfinite (verticalFieldOfView) || verticalFieldOfView <= 1.0e-6 || verticalFieldOfView >= Pi)
+		return DefaultHorizontalFieldOfView;
+	return verticalFieldOfView;
+}
+
 void SetArchicadWindowMetadata (const API_3DWindowInfo& window, InitialView& view)
 {
 	view.archicadWindowWidth = window.hSize;
@@ -535,8 +558,7 @@ InitialView CollectInitialView (const Model& model, const Active3DViewSettings& 
 		const double aspect = window.hSize > 0 && window.vSize > 0
 		                          ? static_cast<double> (window.hSize) / static_cast<double> (window.vSize)
 		                          : 1.0;
-		view.verticalFieldOfViewRadians =
-		    2.0 * std::atan (std::tan (perspective.viewCone * 0.5) / std::max (aspect, 1.0e-6));
+		view.verticalFieldOfViewRadians = VerticalFieldOfView (perspective.viewCone, aspect);
 		view.nearPlane = std::max (0.01, Length (Subtract (view.target, view.position)) * 0.001);
 		return view;
 	}
