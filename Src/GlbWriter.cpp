@@ -26,6 +26,7 @@ constexpr int ArrayBuffer = 34962;
 constexpr int ElementArrayBuffer = 34963;
 constexpr int Repeat = 10497;
 constexpr int MirroredRepeat = 33648;
+constexpr int ArchicadPointLightType = 3; // APILght_PointID in the Archicad 28/29 DevKits.
 } // namespace Constant
 
 struct PackedGeometry {
@@ -110,6 +111,60 @@ Vec3 Cross (const Vec3& left, const Vec3& right)
 {
 	return {left.y * right.z - left.z * right.y, left.z * right.x - left.x * right.z,
 	        left.x * right.y - left.y * right.x};
+}
+
+struct RectangularWindowEmitter {
+	Vec3 center;
+	Vec3 normal;
+	Vec3 widthAxis;
+	Vec3 heightAxis;
+	double width;
+	double height;
+};
+
+std::optional<RectangularWindowEmitter> DeriveRectangularWindowEmitter (const WindowLight& light)
+{
+	// The generated point-light component supplies the world-space center and
+	// inward normal in the tested Window Light 27 exports. Its black colour and
+	// falloff are not a calibrated rectangular emitter.
+	if (light.lightComponentStatus != "available" || light.lightComponents.size () != 1 ||
+	    light.lightComponents.front ().type != Constant::ArchicadPointLightType)
+		return std::nullopt;
+
+	double width = 0.0;
+	double height = 0.0;
+	bool rectangular = false;
+	for (const LampParameter& parameter : light.parameters) {
+		if (parameter.name == "iC4dDetAreaShape" && !parameter.isText)
+			// Archicad 29 Window Light 27: 2 is the rectangular shape in the
+			// inspected export. Do not infer shapes from localized display text.
+			rectangular = parameter.value == 2.0;
+		else if (parameter.name == "c4dDetAreaX" && !parameter.isText)
+			width = parameter.value;
+		else if (parameter.name == "c4dDetAreaY" && !parameter.isText)
+			height = parameter.value;
+	}
+	if (!rectangular || !std::isfinite (width) || !std::isfinite (height) || width <= 0.0 || height <= 0.0)
+		return std::nullopt;
+
+	const ArchicadLightComponent& component = light.lightComponents.front ();
+	const Vec3& center = component.position;
+	const Vec3& direction = component.direction;
+	if (!std::isfinite (center.x) || !std::isfinite (center.y) || !std::isfinite (center.z) ||
+	    !std::isfinite (direction.x) || !std::isfinite (direction.y) || !std::isfinite (direction.z))
+		return std::nullopt;
+	const double directionLength = Length (direction);
+	// This interpretation is established for upright window lights. Avoid
+	// inventing an in-plane roll for a tilted or vertical-facing emitter.
+	if (!std::isfinite (directionLength) || directionLength <= 1.0e-9 ||
+	    std::abs (direction.y / directionLength) > 1.0e-4)
+		return std::nullopt;
+	const double horizontalLength = std::hypot (direction.x, direction.z);
+	const Vec3 normal {static_cast<float> (direction.x / horizontalLength), 0.0f,
+	                   static_cast<float> (direction.z / horizontalLength)};
+	const Vec3 heightAxis {0.0f, 1.0f, 0.0f};
+	const Vec3 widthAxis = Cross (heightAxis, normal);
+	return RectangularWindowEmitter {center, normal, widthAxis, heightAxis, width, height};
 }
 
 CameraNodeTransform BuildCameraNodeTransform (const InitialView& view)
@@ -401,7 +456,8 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
 	     << EscapeJsonString (generator) << '"';
-	if (model.initialView.has_value () || model.sun.has_value () || !model.designCredits.empty ()) {
+	if (model.initialView.has_value () || model.sun.has_value () || !model.windowLights.empty () ||
+	    !model.designCredits.empty ()) {
 		json << ",\"extras\":{\"dropView\":{\"schemaVersion\":1";
 		if (!model.designCredits.empty ())
 			json << ",\"designCredits\":\"" << EscapeJsonString (model.designCredits) << '"';
@@ -422,7 +478,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		json << model.groups.size ();
 	}
 	json << ']';
-	if (model.initialView.has_value () || model.sun.has_value ()) {
+	if (model.initialView.has_value () || model.sun.has_value () || !model.windowLights.empty ()) {
 		json << ",\"extras\":{\"dropView\":{";
 		bool wroteSceneMetadata = false;
 		if (model.initialView.has_value ()) {
@@ -463,6 +519,76 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			     << ",\"day\":" << sun.day << ",\"hour\":" << sun.hour << ",\"minute\":" << sun.minute
 			     << ",\"second\":" << sun.second << ",\"daylightSaving\":"
 			     << (sun.daylightSaving ? "true" : "false") << "}}";
+			wroteSceneMetadata = true;
+		}
+		if (!model.windowLights.empty ()) {
+			if (wroteSceneMetadata)
+				json << ',';
+			json << "\"windowLights\":[";
+			for (std::size_t i = 0; i < model.windowLights.size (); ++i) {
+				if (i > 0)
+					json << ',';
+				const WindowLight& light = model.windowLights[i];
+				json << "{\"source\":\"archicad-window-light\",\"elementGuid\":\""
+				     << EscapeJsonString (light.elementGuid) << "\",\"libraryPartId\":\""
+				     << EscapeJsonString (light.libraryPartId) << "\",\"libraryPartName\":\""
+				     << EscapeJsonString (light.libraryPartName) << "\",\"position\":";
+				WriteVec3 (json, light.position);
+				json << ",\"rotationRadians\":" << light.rotationRadians
+				     << ",\"reflected\":" << (light.reflected ? "true" : "false")
+				     << ",\"enabled\":" << (light.enabled ? "true" : "false") << ",\"color\":";
+				WriteVec3 (json, light.color);
+				json << ",\"defaultSize\":[" << light.defaultA << ',' << light.defaultB << ']'
+				     << ",\"sizeRatios\":[" << light.xRatio << ',' << light.yRatio << ']'
+				     << ",\"parameters\":[";
+				for (std::size_t p = 0; p < light.parameters.size (); ++p) {
+					if (p > 0)
+						json << ',';
+					const LampParameter& parameter = light.parameters[p];
+					json << "{\"name\":\"" << EscapeJsonString (parameter.name) << "\",\"type\":"
+					     << parameter.type << ",\"value\":";
+					if (parameter.isText)
+						json << '"' << EscapeJsonString (parameter.text) << '"';
+					else
+						json << parameter.value;
+					json << '}';
+				}
+				json << "],\"lightComponentStatus\":\"" << EscapeJsonString (light.lightComponentStatus)
+				     << "\",\"lightComponents\":[";
+				for (std::size_t c = 0; c < light.lightComponents.size (); ++c) {
+					if (c > 0)
+						json << ',';
+					const ArchicadLightComponent& component = light.lightComponents[c];
+					json << "{\"coordinateFrame\":\"sourceLightLocalAxisMapped\",\"type\":"
+					     << component.type << ",\"shadowStatus\":" << component.shadowStatus
+					     << ",\"position\":";
+					WriteVec3 (json, component.position);
+					json << ",\"direction\":";
+					WriteVec3 (json, component.direction);
+					json << ",\"color\":";
+					WriteVec3 (json, component.color);
+					json << ",\"radius\":" << component.radius << ",\"cosInner\":" << component.cosInner
+					     << ",\"cosOuter\":" << component.cosOuter
+					     << ",\"angularFalloff\":" << component.angularFalloff
+					     << ",\"distanceStart\":" << component.distanceStart
+					     << ",\"distanceEnd\":" << component.distanceEnd
+					     << ",\"distanceFalloff\":" << component.distanceFalloff << '}';
+				}
+				json << ']';
+				if (const auto emitter = DeriveRectangularWindowEmitter (light); emitter.has_value ()) {
+					json << ",\"rectangularEmitter\":{\"coordinateFrame\":\"gltfWorld\",\"center\":";
+					WriteVec3 (json, emitter->center);
+					json << ",\"normal\":";
+					WriteVec3 (json, emitter->normal);
+					json << ",\"widthAxis\":";
+					WriteVec3 (json, emitter->widthAxis);
+					json << ",\"heightAxis\":";
+					WriteVec3 (json, emitter->heightAxis);
+					json << ",\"width\":" << emitter->width << ",\"height\":" << emitter->height << '}';
+				}
+				json << '}';
+			}
+			json << ']';
 		}
 		json << "}}";
 	}

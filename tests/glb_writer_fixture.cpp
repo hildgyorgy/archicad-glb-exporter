@@ -142,6 +142,68 @@ int main (int argumentCount, char** arguments)
 	model.sun->hour = 13;
 	model.sun->minute = 30;
 	model.sun->daylightSaving = true;
+	DropView::Glb::WindowLight windowLight;
+	windowLight.elementGuid = "lamp-guid";
+	windowLight.libraryPartId = "window-light-library-id";
+	windowLight.libraryPartName = "ablakfény 27";
+	windowLight.position = {2.0f, 4.2f, -3.0f};
+	windowLight.rotationRadians = 0.5;
+	windowLight.enabled = true;
+	windowLight.color = {0.8f, 0.9f, 1.0f};
+	windowLight.defaultA = 1.2;
+	windowLight.defaultB = 1.5;
+	windowLight.xRatio = 2.0;
+	windowLight.parameters.push_back ({"intensity", 5, 100.0, "", false});
+	windowLight.parameters.push_back ({"label", 0, 0.0, "Window \"A\"", true});
+	windowLight.lightComponentStatus = "available";
+	DropView::Glb::ArchicadLightComponent lightComponent;
+	lightComponent.type = 2;
+	lightComponent.shadowStatus = 1;
+	lightComponent.position = {2.0f, 4.2f, -3.0f};
+	lightComponent.direction = {0.0f, 0.0f, -1.0f};
+	lightComponent.color = {1.0f, 0.8f, 0.6f};
+	lightComponent.radius = 0.5;
+	lightComponent.cosInner = 0.9;
+	lightComponent.cosOuter = 0.7;
+	lightComponent.angularFalloff = 0.2;
+	lightComponent.distanceStart = 0.1;
+	lightComponent.distanceEnd = 6.0;
+	lightComponent.distanceFalloff = 1.0;
+	windowLight.lightComponents.push_back (lightComponent);
+	model.windowLights.push_back (windowLight);
+	DropView::Glb::WindowLight areaLight = windowLight;
+	areaLight.elementGuid = "area-original";
+	areaLight.position = {6.9325f, 2.7f, 7.44035f};
+	areaLight.rotationRadians = 3.141592653589793;
+	areaLight.reflected = true;
+	areaLight.parameters.push_back ({"c4dDetAreaShape", 0, 0.0, "Another locale", true});
+	areaLight.parameters.push_back ({"iC4dDetAreaShape", 0, 2.0, "", false});
+	areaLight.parameters.push_back ({"c4dDetAreaX", 0, 11.646532, "", false});
+	areaLight.parameters.push_back ({"c4dDetAreaY", 0, 2.4, "", false});
+	areaLight.lightComponents.front ().type = 3;
+	areaLight.lightComponents.front ().position = {12.755766f, 3.9f, 7.44035f};
+	areaLight.lightComponents.front ().direction = {0.0f, 0.0f, 1.0f};
+	areaLight.lightComponents.front ().color = {0.0f, 0.0f, 0.0f};
+	model.windowLights.push_back (areaLight);
+	areaLight.elementGuid = "area-flipped";
+	areaLight.rotationRadians = 0.0;
+	areaLight.reflected = false;
+	areaLight.lightComponents.front ().direction = {0.0f, 0.0f, -1.0f};
+	model.windowLights.push_back (areaLight);
+	areaLight.elementGuid = "area-rotated";
+	areaLight.rotationRadians = 4.71238898038469;
+	areaLight.reflected = true;
+	areaLight.position = {12.755768f, 2.7f, 13.263616f};
+	areaLight.lightComponents.front ().direction = {1.0f, 0.0f, 0.0f};
+	model.windowLights.push_back (areaLight);
+	areaLight.elementGuid = "area-other-shape";
+	for (auto& parameter : areaLight.parameters) {
+		if (parameter.name == "c4dDetAreaShape")
+			parameter.text = "Téglalap";
+		else if (parameter.name == "iC4dDetAreaShape")
+			parameter.value = 1.0;
+	}
+	model.windowLights.push_back (areaLight);
 	const std::vector<char> glb = DropView::Glb::BuildBinary (model, "Drop & View \"writer\"\ntest");
 
 	RequireFailure ([] { (void)DropView::Glb::BuildBinary ({}, "empty"); }, "Model without materials was accepted");
@@ -183,6 +245,7 @@ int main (int argumentCount, char** arguments)
 		throw std::runtime_error ("Cannot write GLB fixture");
 
 	model.designCredits.clear ();
+	model.windowLights.clear ();
 	model.initialView->projection = DropView::Glb::CameraProjection::Orthographic;
 	model.initialView->orthographicXMag = 12.5;
 	model.initialView->orthographicYMag = 7.25;

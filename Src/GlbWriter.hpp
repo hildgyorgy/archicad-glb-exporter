@@ -93,6 +93,51 @@ struct SunSettings {
 	bool daylightSaving = false;
 };
 
+// Experimental Archicad Window Light data. These are source parameters, not a
+// glTF punctual light or a photometrically calibrated area emitter.
+struct LampParameter {
+	std::string name;
+	std::int32_t type = 0;
+	double value = 0.0;
+	std::string text;
+	bool isText = false;
+};
+
+// Archicad's generated GDL LIGHT primitive, in glTF axis order. This is
+// diagnostic data; it is not necessarily the Cineware area-light emitter.
+struct ArchicadLightComponent {
+	std::int32_t type = 0;
+	std::int32_t shadowStatus = 0;
+	Vec3 position {0.0f, 0.0f, 0.0f};
+	Vec3 direction {0.0f, 0.0f, 0.0f};
+	Vec3 color {0.0f, 0.0f, 0.0f};
+	double radius = 0.0;
+	double cosInner = 0.0;
+	double cosOuter = 0.0;
+	double angularFalloff = 0.0;
+	double distanceStart = 0.0;
+	double distanceEnd = 0.0;
+	double distanceFalloff = 0.0;
+};
+
+struct WindowLight {
+	std::string elementGuid;
+	std::string libraryPartId;
+	std::string libraryPartName;
+	Vec3 position {0.0f, 0.0f, 0.0f};
+	double rotationRadians = 0.0;
+	bool reflected = false;
+	bool enabled = false;
+	Vec3 color {1.0f, 1.0f, 1.0f};
+	double defaultA = 0.0;
+	double defaultB = 0.0;
+	double xRatio = 1.0;
+	double yRatio = 1.0;
+	std::vector<LampParameter> parameters;
+	std::string lightComponentStatus = "unavailable";
+	std::vector<ArchicadLightComponent> lightComponents;
+};
+
 SunSettings ConvertArchicadSunAngles (double azimuthDegrees, double altitudeDegrees);
 
 struct InitialView {
@@ -128,6 +173,7 @@ struct Model {
 	std::string designCredits;
 	std::optional<InitialView> initialView;
 	std::optional<SunSettings> sun;
+	std::vector<WindowLight> windowLights;
 };
 
 std::vector<char> BuildBinary (const Model& model, const std::string& generator);

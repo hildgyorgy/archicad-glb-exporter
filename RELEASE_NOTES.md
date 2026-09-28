@@ -1,8 +1,11 @@
 ## What's changed
 
-- Preserves the active Archicad 3D view's per-polygon texture orientation and scale, including differently mapped faces on GDL objects.
-- Corrects interpretation of Archicad texture rotation angles.
-- Includes regression coverage for texture rotation and UV scaling.
+- Experimental Archicad Window Light metadata export in `scenes[0].extras.dropView.windowLights`.
+- Preserves each matched lamp's element and library-part IDs, placement, on/off state, colour, size information, and scalar GDL parameters for viewer-side evaluation.
+- Includes generated Archicad 3D `LIGHT` component directions and raw light settings when available, with an explicit query status for each lamp.
+- Derives a glTF-world rectangular emitter's centre, inward normal, in-plane axes and metre dimensions for validated upright window lights with the observed numeric shape ID `iC4dDetAreaShape = 2`; leaves intensity uncalibrated.
+- Does not create a glTF punctual light or change materials, glass, the global sun, or viewer brightness.
+- Window Light recognition currently matches the Hungarian or English library-part name; validate other library variants and placements before general release.
 
 ## Requirements
 

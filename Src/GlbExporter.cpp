@@ -35,6 +35,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -49,13 +50,16 @@
 namespace {
 
 using DropView::Glb::CameraProjection;
+using DropView::Glb::ArchicadLightComponent;
 using DropView::Glb::InitialView;
+using DropView::Glb::LampParameter;
 using DropView::Glb::Material;
 using DropView::Glb::Model;
 using DropView::Glb::Primitive;
 using DropView::Glb::SunSettings;
 using DropView::Glb::Vec2;
 using DropView::Glb::Vec3;
+using DropView::Glb::WindowLight;
 using GlbGeometry::CornerNormals;
 
 enum class GroupingMode { Surface, Layer, ElementType };
@@ -636,6 +640,190 @@ SunSettings CollectSunSettings (const Active3DViewSettings& settings)
 	sun.daylightSaving = source.summerTime;
 
 	return sun;
+}
+
+bool IsWindowLightName (const std::string& name)
+{
+	// Only an experimental name match until the library-part GUID of the
+	// installed Archicad 29 object can be checked against a sample PLN.
+	return name.find ("Window Light") != std::string::npos ||
+	       name.find ("window light") != std::string::npos ||
+	       name.find ("Ablakfény") != std::string::npos ||
+	       name.find ("ablakfény") != std::string::npos;
+}
+
+std::optional<double> GetStoryLevel (short storyIndex)
+{
+	API_StoryInfo stories {};
+	if (ACAPI_ProjectSetting_GetStorySettings (&stories) != NoError)
+		return std::nullopt;
+	std::optional<double> level;
+	if (stories.data != nullptr) {
+		for (short i = 0; i <= stories.lastStory - stories.firstStory; ++i) {
+			if ((*stories.data)[i].index == storyIndex) {
+				level = (*stories.data)[i].level;
+				break;
+			}
+		}
+		BMKillHandle (reinterpret_cast<GSHandle*> (&stories.data));
+	}
+	return level;
+}
+
+void CollectLampLightComponents (const API_Element& element, WindowLight& light)
+{
+	API_ElemInfo3D info {};
+	if (ACAPI_ModelAccess_Get3DInfo (element.header, &info) != NoError)
+		return;
+	if (info.flight <= 0 || info.llight < info.flight) {
+		light.lightComponentStatus = "none";
+		return;
+	}
+	// A library object may emit more than one GDL LIGHT. Keep every readable
+	// component, but never let a corrupt range create an unbounded export.
+	constexpr Int32 maxComponentsPerLamp = 256;
+	const Int32 lastIndex = std::min (info.llight, info.flight + maxComponentsPerLamp - 1);
+	bool incomplete = lastIndex != info.llight;
+	for (Int32 index = info.flight; index <= lastIndex; ++index) {
+		API_Component3D source {};
+		source.header.typeID = API_LghtID;
+		source.header.index = index;
+		if (ACAPI_ModelAccess_GetComponent (&source) != NoError) {
+			incomplete = true;
+			continue;
+		}
+		const API_LghtType& value = source.lght;
+		const double numbers[] {value.posx, value.posy, value.posz, value.dirx, value.diry, value.dirz,
+		                        value.lightRGB.f_red, value.lightRGB.f_green, value.lightRGB.f_blue,
+		                        value.radius, value.cosa, value.cosb, value.afall, value.dist1, value.dist2,
+		                        value.dfall};
+		if (!std::all_of (std::begin (numbers), std::end (numbers), [] (double number) {
+			    return std::isfinite (number);
+		})) {
+			incomplete = true;
+			continue;
+		}
+		ArchicadLightComponent component;
+		component.type = static_cast<std::int32_t> (value.type);
+		component.shadowStatus = value.status;
+		component.position = ConvertArchicadPoint (value.posx, value.posy, value.posz);
+		component.direction = ConvertArchicadPoint (value.dirx, value.diry, value.dirz);
+		component.color = {static_cast<float> (value.lightRGB.f_red),
+		                   static_cast<float> (value.lightRGB.f_green),
+		                   static_cast<float> (value.lightRGB.f_blue)};
+		const Vec3 vectors[] {component.position, component.direction, component.color};
+		if (!std::all_of (std::begin (vectors), std::end (vectors), [] (const Vec3& vector) {
+			    return std::isfinite (vector.x) && std::isfinite (vector.y) && std::isfinite (vector.z);
+		})) {
+			incomplete = true;
+			continue;
+		}
+		component.radius = value.radius;
+		component.cosInner = value.cosa;
+		component.cosOuter = value.cosb;
+		component.angularFalloff = value.afall;
+		component.distanceStart = value.dist1;
+		component.distanceEnd = value.dist2;
+		component.distanceFalloff = value.dfall;
+		light.lightComponents.push_back (component);
+	}
+	light.lightComponentStatus = incomplete ? "partial" : "available";
+}
+
+std::vector<WindowLight> CollectWindowLights ()
+{
+	std::vector<WindowLight> lights;
+	GS::Array<API_Guid> guids;
+	// Do not require a generated 3D light: a switched-off lamp must still
+	// retain its off state in the diagnostic metadata.
+	if (ACAPI_Element_GetElemList (API_LampID, &guids, APIFilt_OnVisLayer) != NoError)
+		return lights;
+	for (const API_Guid& guid : guids) {
+		API_Element element {};
+		element.header.guid = guid;
+		if (ACAPI_Element_Get (&element) != NoError)
+			continue;
+		API_LibPart libPart {};
+		libPart.index = element.lamp.libInd;
+		const GSErrCode libError = ACAPI_LibraryPart_Get (&libPart);
+		const std::string name = libError == NoError
+		                             ? GS::UniString (libPart.docu_UName).ToCStr (CC_UTF8).Get ()
+		                             : std::string ();
+		if (libPart.location != nullptr)
+			delete libPart.location;
+		if (libError != NoError || !IsWindowLightName (name))
+			continue;
+		const std::optional<double> storyLevel = GetStoryLevel (element.header.floorInd);
+		if (!storyLevel.has_value ())
+			continue;
+
+		WindowLight light;
+		light.elementGuid = APIGuid2GSGuid (guid).ToUniString ().ToCStr (CC_UTF8).Get ();
+		light.libraryPartId = libPart.ownUnID;
+		light.libraryPartName = name;
+		light.position = ConvertArchicadPoint (element.lamp.pos.x, element.lamp.pos.y,
+		                                            *storyLevel + element.lamp.level);
+		light.rotationRadians = element.lamp.angle;
+		light.reflected = element.lamp.reflected;
+		light.enabled = element.lamp.lightIsOn;
+		light.color = {static_cast<float> (element.lamp.lightColor.f_red),
+		               static_cast<float> (element.lamp.lightColor.f_green),
+		               static_cast<float> (element.lamp.lightColor.f_blue)};
+		light.xRatio = element.lamp.xRatio;
+		light.yRatio = element.lamp.yRatio;
+
+		double defaultA = 0.0;
+		double defaultB = 0.0;
+		Int32 defaultParameterCount = 0;
+		API_AddParType** defaultParameters = nullptr;
+		if (ACAPI_LibraryPart_GetParams (element.lamp.libInd, &defaultA, &defaultB,
+		                                 &defaultParameterCount, &defaultParameters) == NoError) {
+			light.defaultA = defaultA;
+			light.defaultB = defaultB;
+		}
+		if (defaultParameters != nullptr)
+			ACAPI_DisposeAddParHdl (&defaultParameters);
+
+		API_ElementMemo memo {};
+		if (ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_AddPars) == NoError && memo.params != nullptr) {
+			const GSSize count = BMGetHandleSize (reinterpret_cast<GSHandle> (memo.params)) /
+			                     sizeof (API_AddParType);
+			for (GSSize i = 0; i < count; ++i) {
+				const API_AddParType& source = (*memo.params)[i];
+				if (source.typeMod != 0 || source.name[0] == '\0')
+					continue; // Array data needs a separate, typed decoder.
+				LampParameter parameter;
+				parameter.name = source.name;
+				parameter.type = static_cast<std::int32_t> (source.typeID);
+				if (source.typeID == APIParT_CString) {
+					parameter.isText = true;
+					parameter.text = GS::UniString (source.value.uStr).ToCStr (CC_UTF8).Get ();
+				} else {
+					switch (source.typeID) {
+						case APIParT_Integer:
+						case APIParT_Length:
+						case APIParT_Angle:
+						case APIParT_RealNum:
+						case APIParT_LightSw:
+						case APIParT_ColRGB:
+						case APIParT_Intens:
+						case APIParT_Boolean:
+							if (!std::isfinite (source.value.real))
+								continue;
+							parameter.value = source.value.real;
+							break;
+						default:
+							continue;
+					}
+				}
+				light.parameters.push_back (std::move (parameter));
+			}
+		}
+		ACAPI_DisposeElemMemoHdls (&memo);
+		CollectLampLightComponents (element, light);
+		lights.push_back (std::move (light));
+	}
+	return lights;
 }
 
 Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reverse)
@@ -1378,6 +1566,7 @@ void ExportActive3DWindowToGlb ()
 			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
 			return;
 		}
+		model.windowLights = CollectWindowLights ();
 		if (activeViewSettings.has_value ()) {
 			try {
 				model.initialView = CollectInitialView (model, *activeViewSettings);
@@ -1409,8 +1598,9 @@ void ExportActive3DWindowToGlb ()
 	}
 	const Int32 problemCount = statistics.emptyElementCount + statistics.failedElementCount;
 	const GS::UniString viewReport =
-	    GS::UniString::Printf ("\nInitial viewpoint: %s\nSun position: %s", initialViewStatus.c_str (),
-	                           sunStatus.c_str ());
+	    GS::UniString::Printf ("\nInitial viewpoint: %s\nSun position: %s\nWindow lights (experimental): %u",
+	                           initialViewStatus.c_str (), sunStatus.c_str (),
+	                           static_cast<unsigned> (model.windowLights.size ()));
 	if (problemCount == 0)
 		ACAPI_WriteReport (
 		    GS::UniString::Printf (

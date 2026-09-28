@@ -92,6 +92,65 @@ def main() -> None:
         "daylightSaving": True,
     }, "sun date/time metadata changed")
 
+    window_lights = document["scenes"][0]["extras"]["dropView"]["windowLights"]
+    require(len(window_lights) == 5, "experimental window lights were not exported")
+    window_light = window_lights[0]
+    require(window_light["source"] == "archicad-window-light", "window light source changed")
+    require(window_light["elementGuid"] == "lamp-guid", "window light GUID changed")
+    require(window_light["libraryPartId"] == "window-light-library-id", "library part ID changed")
+    require(window_light["libraryPartName"] == "ablakfény 27", "UTF-8 lamp name changed")
+    require(window_light["position"] == [2.0, 4.2, -3.0], "window light placement changed")
+    require(window_light["rotationRadians"] == 0.5, "window light rotation changed")
+    require(window_light["enabled"] is True, "window light on/off state changed")
+    require(window_light["color"] == [0.8, 0.9, 1.0], "window light color changed")
+    require(window_light["defaultSize"] == [1.2, 1.5], "window light default size changed")
+    require(window_light["sizeRatios"] == [2.0, 1.0], "window light size ratios changed")
+    require(window_light["parameters"] == [
+        {"name": "intensity", "type": 5, "value": 100.0},
+        {"name": "label", "type": 0, "value": 'Window "A"'},
+    ], "window light raw parameters changed")
+    require(window_light["lightComponentStatus"] == "available", "light component status changed")
+    require(window_light["lightComponents"] == [{
+        "coordinateFrame": "sourceLightLocalAxisMapped",
+        "type": 2,
+        "shadowStatus": 1,
+        "position": [2.0, 4.2, -3.0],
+        "direction": [0.0, 0.0, -1.0],
+        "color": [1.0, 0.8, 0.6],
+        "radius": 0.5,
+        "cosInner": 0.9,
+        "cosOuter": 0.7,
+        "angularFalloff": 0.2,
+        "distanceStart": 0.1,
+        "distanceEnd": 6.0,
+        "distanceFalloff": 1.0,
+    }], "Archicad 3D light direction or raw attributes changed")
+    require("rectangularEmitter" not in window_light,
+            "unsupported light component was promoted to a rectangular emitter")
+
+    expected_normals = ([0.0, 0.0, 1.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0])
+    expected_width_axes = ([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, -1.0])
+    for index, (normal, width_axis) in enumerate(zip(expected_normals, expected_width_axes), 1):
+        light = window_lights[index]
+        emitter = light["rectangularEmitter"]
+        require(emitter["coordinateFrame"] == "gltfWorld", "emitter frame is ambiguous")
+        require(all(math.isclose(actual, expected, abs_tol=1e-5)
+                    for actual, expected in zip(emitter["center"], [12.755766, 3.9, 7.44035])),
+                "emitter center moved during flip or rotation")
+        require(emitter["normal"] == normal, "inward normal did not flip or rotate")
+        require(emitter["widthAxis"] == width_axis, "width axis did not follow the normal")
+        require(emitter["heightAxis"] == [0.0, 1.0, 0.0], "height axis is not upright")
+        require(math.isclose(emitter["width"], 11.646532, abs_tol=1e-6) and
+                math.isclose(emitter["height"], 2.4, abs_tol=1e-6),
+                "emitter dimensions changed")
+        require("intensity" not in emitter and "color" not in emitter,
+                "uncalibrated photometric values were added to emitter")
+        require(any(parameter["name"] == "iC4dDetAreaShape" and parameter["value"] == 2.0
+                    for parameter in light["parameters"]),
+                "numeric GDL shape parameter was not preserved")
+    require("rectangularEmitter" not in window_lights[4],
+            "localized rectangle text bypassed the numeric shape identifier")
+
     require(len(document["cameras"]) == 1, "expected one startup camera")
     camera = document["cameras"][0]
     require(camera["type"] == "perspective", "startup camera type changed")
@@ -104,6 +163,8 @@ def main() -> None:
         orthographic_data[20:20 + ortho_json_length].decode("utf-8").rstrip(" \0"))
     require(orthographic_document["asset"]["extras"]["dropView"] == {"schemaVersion": 1},
             "empty design credits produced incorrect asset metadata")
+    require("windowLights" not in orthographic_document["scenes"][0]["extras"]["dropView"],
+            "empty window-light list should be omitted")
     orthographic_camera = orthographic_document["cameras"][0]
     require(orthographic_camera["type"] == "orthographic", "orthographic camera type changed")
     require(orthographic_camera["orthographic"] == {
