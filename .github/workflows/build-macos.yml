@@ -40,6 +40,8 @@ jobs:
             devkit_tag: "28.4001"
           - archicad: 29
             devkit_tag: "29.3100"
+          - archicad: 30
+            devkit_tag: "30.3000"
     env:
       ADDON_NAME: DropViewGLBExporter
       DEVKIT_TAG: ${{ matrix.devkit_tag }}
@@ -47,6 +49,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
       - name: Download Archicad API DevKit (macOS)
         shell: bash
@@ -107,6 +114,7 @@ jobs:
             -DAC_API_DEVKIT_DIR="$AC_API_DEVKIT_DIR" \
             -DAC_ADDON_NAME="$ADDON_NAME" \
             -DAC_ADDON_LANGUAGE=INT \
+            -DAC_API_DEVKIT_BUILD_NUMBER=3000 \
             -DDROPVIEW_VERSION_OVERRIDE="${{ inputs.version }}"
 
       - name: Build (Release)
@@ -133,7 +141,7 @@ jobs:
           if-no-files-found: error
 
   package-macos:
-    name: Sign, notarize and package Archicad 28-29
+    name: Sign, notarize and package Archicad 28-30
     needs: build-macos
     runs-on: macos-26
     timeout-minutes: 30
@@ -159,6 +167,12 @@ jobs:
         with:
           name: DropViewGLBExporter-AC29-macOS26-arm64
           path: downloaded/Archicad 29
+
+      - name: Download Archicad 30 bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: DropViewGLBExporter-AC30-macOS26-arm64
+          path: downloaded/Archicad 30
 
       - name: Import Developer ID certificate
         shell: bash
@@ -192,10 +206,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive_name="DropView-GLB-Exporter-AC28-29-macOS26-arm64-v$VERSION"
+          archive_name="DropView-GLB-Exporter-AC28-30-macOS26-arm64-v$VERSION"
           stage="$RUNNER_TEMP/$archive_name"
-          mkdir -p "$stage/Archicad 28" "$stage/Archicad 29"
-          for version in 28 29; do
+          mkdir -p "$stage/Archicad 28" "$stage/Archicad 29" "$stage/Archicad 30"
+          for version in 28 29 30; do
             source_bundle="downloaded/Archicad $version/DropViewGLBExporter.bundle"
             target_bundle="$stage/Archicad $version/DropViewGLBExporter.bundle"
             if [[ ! -d "$source_bundle" ]]; then

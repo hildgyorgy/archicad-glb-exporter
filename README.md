@@ -6,7 +6,7 @@ A native Archicad add-on that exports the complete current content of the active
 
 The latest production release supports:
 
-- Archicad 28 and 29
+- Archicad 28, 29 and 30
 - Apple Silicon Macs (`arm64`) with macOS 26 or later
 - Windows 11 PCs (`x64`)
 
@@ -91,7 +91,7 @@ different visibility list is required. **Surface / Texture** preserves the origi
 
 The export command is disabled outside the 3D window. If an element contains invalid polygons, the exporter attempts to export its valid geometry and reports the skipped parts after completion.
 
-## Building for Archicad 28–29 on macOS
+## Building for Archicad 28–30 on macOS
 
 Use the API DevKit matching the target Archicad major version. Each major version requires its own bundle, but both builds use the same exporter source:
 
@@ -103,7 +103,7 @@ cmake -S . -B build-ac28 -G Xcode \
 cmake --build build-ac28 --config Release
 ```
 
-The CMake configuration detects the DevKit version and accepts Archicad 28 and 29. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes it in the DMG filename.
+The CMake configuration detects the DevKit version and accepts Archicad 28, 29 and 30. Each major version must be built against its matching DevKit. AC30 resource compilation requires Python 3.10 or newer; the AC30 DevKit build number defaults to 3000 and can be overridden with `-DAC_API_DEVKIT_BUILD_NUMBER=<build>`. macOS builds target Apple Silicon and macOS 26. The release packaging script also detects the DevKit version and includes the supported Archicad versions in the DMG filename.
 
 ## Support and feedback
 

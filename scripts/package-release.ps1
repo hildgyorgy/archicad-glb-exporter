@@ -1,6 +1,6 @@
 #!/usr/bin/env pwsh
-# Builds and packages the Archicad 28 and 29 Windows add-ons together.
-# Set AC28_API_DEVKIT_DIR and AC29_API_DEVKIT_DIR to the matching DevKit roots.
+# Builds and packages the Archicad 28, 29 and 30 Windows add-ons together.
+# Set AC28_API_DEVKIT_DIR, AC29_API_DEVKIT_DIR and AC30_API_DEVKIT_DIR to matching DevKit roots.
 # Set CODESIGN_THUMBPRINT for Authenticode signing or ALLOW_UNSIGNED=1 for testing.
 
 $ErrorActionPreference = "Stop"
@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path "$PSScriptRoot/..").Path
 $DefaultVersion = (Get-Content (Join-Path $ProjectRoot "VERSION") -Raw).Trim()
 $ReleaseVersion = if ($env:RELEASE_VERSION) { $env:RELEASE_VERSION } else { $DefaultVersion }
-$ArchiveName = "DropView-GLB-Exporter-AC28-29-Windows-x64-v$ReleaseVersion"
+$ArchiveName = "DropView-GLB-Exporter-AC28-30-Windows-x64-v$ReleaseVersion"
 $AddonName = "DropViewGLBExporter"
 $TemporaryRoot = Join-Path $env:TEMP "dropview-glb-exporter-release"
 $StageDir = Join-Path $TemporaryRoot "stage\$ArchiveName"
@@ -16,7 +16,8 @@ $OutputZip = Join-Path $ProjectRoot "dist\$ArchiveName.zip"
 
 $Targets = @(
     @{ Version = 28; DevKit = $env:AC28_API_DEVKIT_DIR; Toolset = "v142" },
-    @{ Version = 29; DevKit = $env:AC29_API_DEVKIT_DIR; Toolset = "v143" }
+    @{ Version = 29; DevKit = $env:AC29_API_DEVKIT_DIR; Toolset = "v143" },
+    @{ Version = 30; DevKit = $env:AC30_API_DEVKIT_DIR; Toolset = "v143" }
 )
 
 if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }

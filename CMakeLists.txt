@@ -19,7 +19,7 @@ function (SetCompilerOptions target)
 	if (WIN32)
 		target_compile_options (${target} PUBLIC /W3 /WX /wd4996 /Zc:wchar_t-)
 	else ()
-		# Archicad 28/29 SDK headers trigger these diagnostics under current AppleClang.
+		# Archicad SDK headers trigger these diagnostics under current AppleClang.
 		# Keep the exceptions narrow so warnings in our own sources remain build errors.
 		target_compile_options (${target} PUBLIC -Wall -Wextra -Wpedantic -Werror -fvisibility=hidden
 			"$<$<CONFIG:Release>:-O2>"
@@ -28,7 +28,8 @@ function (SetCompilerOptions target)
 			-Wno-gnu-zero-variadic-macro-arguments
 			-Wno-deprecated-volatile
 			-Wno-reorder-ctor
-			-Wno-nested-anon-types)
+			-Wno-nested-anon-types
+			-Wno-unknown-pragmas)
 	endif ()
 endfunction ()
 
@@ -66,6 +67,7 @@ else ()
 	endif ()
 endif ()
 set (AC_API_DEVKIT_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "API DevKit directory.")
+set (AC_API_DEVKIT_BUILD_NUMBER "3000" CACHE STRING "Archicad API DevKit build number (used by the AC30 resource compiler).")
 set (AC_ADDON_NAME "DropViewGLBExporter" CACHE STRING "Add-On name.")
 set (AC_ADDON_LANGUAGE "INT" CACHE STRING "Add-On language code.")
 file (READ "${CMAKE_CURRENT_LIST_DIR}/VERSION" DROPVIEW_DEFAULT_VERSION)
@@ -93,8 +95,8 @@ if (EXISTS ${ACAPINC_FILE_LOCATION})
 	list (GET VersionList -1 CurrentVersionDefine)
 	string (REGEX REPLACE ".*ServerMainVers_([0-9][0-9])00" "\\1" ARCHICAD_VERSION ${CurrentVersionDefine})
 	message (STATUS "Archicad Version: ${ARCHICAD_VERSION}")
-	if (ARCHICAD_VERSION LESS 28 OR ARCHICAD_VERSION GREATER 29)
-		message (FATAL_ERROR "Unsupported Archicad version ${ARCHICAD_VERSION}. Supported versions are 28 and 29.")
+	if (ARCHICAD_VERSION LESS 28 OR ARCHICAD_VERSION GREATER 30)
+		message (FATAL_ERROR "Unsupported Archicad version ${ARCHICAD_VERSION}. Supported versions are 28, 29 and 30.")
 	endif ()
 else ()
 	message (FATAL_ERROR "Failed to detect Archicad version, please check the value of the AC_API_DEVKIT_DIR variable.")
@@ -170,22 +172,68 @@ add_custom_target (
 get_filename_component (AddOnSourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/${AddOnSourcesFolder}" ABSOLUTE)
 get_filename_component (AddOnResourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/${AddOnResourcesFolder}" ABSOLUTE)
 get_filename_component (APIDevKitToolsFolderAbsolute "${AC_API_DEVKIT_DIR}/Support/Tools" ABSOLUTE)
+set (APIDevKitCompileResourcesScript "${APIDevKitToolsFolderAbsolute}/CompileResources.py")
+if (NOT EXISTS "${APIDevKitCompileResourcesScript}")
+	file (GLOB APIDevKitExampleResourceScripts "${AC_API_DEVKIT_DIR}/Examples/*/Tools/CompileResources.py")
+	list (LENGTH APIDevKitExampleResourceScripts APIDevKitExampleResourceScriptCount)
+	if (APIDevKitExampleResourceScriptCount EQUAL 0)
+		message (FATAL_ERROR "Could not locate CompileResources.py in Support/Tools or Examples/*/Tools under ${AC_API_DEVKIT_DIR}.")
+	endif ()
+	list (GET APIDevKitExampleResourceScripts 0 APIDevKitCompileResourcesScript)
+endif ()
+if (ARCHICAD_VERSION GREATER_EQUAL 30 AND Python3_VERSION VERSION_LESS 3.10)
+	message (FATAL_ERROR "Archicad 30 resource compilation requires Python 3.10 or newer; found ${Python3_VERSION}.")
+endif ()
+if (ARCHICAD_VERSION GREATER_EQUAL 30)
+	set (APIDevKitResourceCompilerRoot "${AC_API_DEVKIT_DIR}/Support")
+else ()
+	set (APIDevKitResourceCompilerRoot "${AC_API_DEVKIT_DIR}")
+endif ()
 if (WIN32)
+	if (ARCHICAD_VERSION GREATER_EQUAL 30)
+		set (CompileResourcesArguments
+			"${AC_ADDON_NAME}" "${AC_ADDON_LANGUAGE}" "${AC_ADDON_LANGUAGE}"
+			"${ARCHICAD_VERSION}" "${AC_API_DEVKIT_BUILD_NUMBER}" "${APIDevKitResourceCompilerRoot}"
+			"${AddOnSourcesFolderAbsolute}" "${AddOnResourcesFolderAbsolute}"
+			"${ResourceObjectsDir}" "${ResourceObjectsDir}/${AC_ADDON_NAME}.res"
+		)
+	else ()
+		set (CompileResourcesArguments
+			"${AC_ADDON_LANGUAGE}" "${AC_API_DEVKIT_DIR}" "${AddOnSourcesFolderAbsolute}"
+			"${AddOnResourcesFolderAbsolute}" "${ResourceObjectsDir}"
+			"${ResourceObjectsDir}/${AC_ADDON_NAME}.res"
+		)
+	endif ()
 	add_custom_command (
 		OUTPUT "${ResourceObjectsDir}/AddOnResources.stamp"
 		DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles}
 		COMMENT "Compiling resources..."
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${ResourceObjectsDir}"
-		COMMAND ${Python3_EXECUTABLE} "${APIDevKitToolsFolderAbsolute}/CompileResources.py" "${AC_ADDON_LANGUAGE}" "${AC_API_DEVKIT_DIR}" "${AddOnSourcesFolderAbsolute}" "${AddOnResourcesFolderAbsolute}" "${ResourceObjectsDir}" "${ResourceObjectsDir}/${AC_ADDON_NAME}.res"
+		COMMAND ${Python3_EXECUTABLE} "${APIDevKitCompileResourcesScript}" ${CompileResourcesArguments}
 		COMMAND ${CMAKE_COMMAND} -E touch "${ResourceObjectsDir}/AddOnResources.stamp"
 	)
 else ()
+	if (ARCHICAD_VERSION GREATER_EQUAL 30)
+		set (CompileResourcesArguments
+			"${AC_ADDON_NAME}" "${AC_ADDON_LANGUAGE}" "${AC_ADDON_LANGUAGE}"
+			"${ARCHICAD_VERSION}" "${AC_API_DEVKIT_BUILD_NUMBER}" "${APIDevKitResourceCompilerRoot}"
+			"${AddOnSourcesFolderAbsolute}" "${AddOnResourcesFolderAbsolute}"
+			"${ResourceObjectsDir}"
+			"${CMAKE_BINARY_DIR}/$<CONFIG>/${AC_ADDON_NAME}.bundle/Contents/Resources"
+		)
+	else ()
+		set (CompileResourcesArguments
+			"${AC_ADDON_LANGUAGE}" "${AC_API_DEVKIT_DIR}" "${AddOnSourcesFolderAbsolute}"
+			"${AddOnResourcesFolderAbsolute}" "${ResourceObjectsDir}"
+			"${CMAKE_BINARY_DIR}/$<CONFIG>/${AC_ADDON_NAME}.bundle/Contents/Resources"
+		)
+	endif ()
 	add_custom_command (
 		OUTPUT "${ResourceObjectsDir}/AddOnResources.stamp"
 		DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles}
 		COMMENT "Compiling resources..."
 		COMMAND ${CMAKE_COMMAND} -E make_directory "${ResourceObjectsDir}"
-		COMMAND ${Python3_EXECUTABLE} "${APIDevKitToolsFolderAbsolute}/CompileResources.py" "${AC_ADDON_LANGUAGE}" "${AC_API_DEVKIT_DIR}" "${AddOnSourcesFolderAbsolute}" "${AddOnResourcesFolderAbsolute}" "${ResourceObjectsDir}" "${CMAKE_BINARY_DIR}/$<CONFIG>/${AC_ADDON_NAME}.bundle/Contents/Resources"
+		COMMAND ${Python3_EXECUTABLE} "${APIDevKitCompileResourcesScript}" ${CompileResourcesArguments}
 		COMMAND ${CMAKE_COMMAND} -E copy "${AC_API_DEVKIT_DIR}/Support/Inc/PkgInfo" "${CMAKE_BINARY_DIR}/$<CONFIG>/${AC_ADDON_NAME}.bundle/Contents/PkgInfo"
 		COMMAND ${CMAKE_COMMAND} -E touch "${ResourceObjectsDir}/AddOnResources.stamp"
 	)

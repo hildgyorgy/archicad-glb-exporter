@@ -74,13 +74,13 @@ jobs:
       - name: Download Windows package
         uses: actions/download-artifact@v8
         with:
-          name: DropView-GLB-Exporter-AC28-29-Windows-x64-v${{ env.VERSION }}
+          name: DropView-GLB-Exporter-AC28-30-Windows-x64-v${{ env.VERSION }}
           path: release-assets
 
       - name: Download macOS package
         uses: actions/download-artifact@v8
         with:
-          name: DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${{ env.VERSION }}
+          name: DropView-GLB-Exporter-AC28-30-macOS26-arm64-v${{ env.VERSION }}
           path: release-assets
 
       - name: Publish release

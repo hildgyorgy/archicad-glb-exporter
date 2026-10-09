@@ -5,10 +5,26 @@ project_root="$(cd "$(dirname "$0")/.." && pwd)"
 default_version="$(tr -d '[:space:]' < "${project_root}/VERSION")"
 release_version="${RELEASE_VERSION:-${default_version}}"
 temporary_root="${TMPDIR%/}/dropview-glb-exporter-release"
-stage_dir="${temporary_root}/stage/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}"
-output_dmg="${project_root}/dist/DropView-GLB-Exporter-AC28-29-macOS26-arm64-v${release_version}.dmg"
+stage_dir="${temporary_root}/stage/DropView-GLB-Exporter-AC28-30-macOS26-arm64-v${release_version}"
+output_dmg="${project_root}/dist/DropView-GLB-Exporter-AC28-30-macOS26-arm64-v${release_version}.dmg"
 ac28_devkit="${AC28_API_DEVKIT_DIR:-/tmp/ac-devkits/28}"
 ac29_devkit="${AC29_API_DEVKIT_DIR:-${HOME}/Downloads/API}"
+ac30_devkit="${AC30_API_DEVKIT_DIR:-${HOME}/Downloads/API-30}"
+
+if [[ -n "${PYTHON3_EXECUTABLE:-}" ]]; then
+    python3_executable="${PYTHON3_EXECUTABLE}"
+else
+    python3_executable=""
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3.10; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+            python3_executable="$(command -v "${candidate}")"
+            break
+        fi
+    done
+    if [[ -z "${python3_executable}" ]]; then
+        python3_executable="$(command -v python3)"
+    fi
+fi
 
 detect_version () {
     local devkit_dir="$1"
@@ -34,6 +50,7 @@ build_and_stage () {
 
     rm -rf "${build_dir}"
     cmake -S "${project_root}" -B "${build_dir}" -G Xcode \
+        -DPython3_EXECUTABLE="${python3_executable}" \
         -DAC_API_DEVKIT_DIR="${devkit_dir}" \
         -DAC_ADDON_NAME=DropViewGLBExporter \
         -DAC_ADDON_LANGUAGE=INT \
@@ -71,6 +88,7 @@ mkdir -p "${stage_dir}" "${project_root}/dist"
 
 build_and_stage 28 "${ac28_devkit}"
 build_and_stage 29 "${ac29_devkit}"
+build_and_stage 30 "${ac30_devkit}"
 
 cp "${project_root}/README.md" "${stage_dir}/README.md"
 cp "${project_root}/LICENSE" "${stage_dir}/LICENSE.txt"
@@ -96,7 +114,7 @@ rm -rf "${verify_dir}"
 mount_dir="${verify_dir}/mount"
 mkdir -p "${mount_dir}"
 hdiutil attach -readonly -nobrowse -mountpoint "${mount_dir}" "${output_dmg}"
-for version in 28 29; do
+for version in 28 29 30; do
     codesign --verify --deep --strict --verbose=2 \
         "${mount_dir}/Archicad ${version}/DropViewGLBExporter.bundle"
 done
