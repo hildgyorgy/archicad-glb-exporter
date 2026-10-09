@@ -171,6 +171,24 @@ add_custom_target (
 
 get_filename_component (AddOnSourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/${AddOnSourcesFolder}" ABSOLUTE)
 get_filename_component (AddOnResourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/${AddOnResourcesFolder}" ABSOLUTE)
+set (APIDevKitResourcesPath "${AddOnResourcesFolderAbsolute}")
+if (WIN32 AND ARCHICAD_VERSION GREATER_EQUAL 30)
+	# The AC30 resource compiler automatically includes generated GRC resources in
+	# AddOnMain.rc2. Remove the legacy explicit include from a build-only copy to
+	# avoid compiling AddOnFix.grc.rc2 twice (CVT1100 duplicate MDID resource).
+	set (APIDevKitResourcesPath "${CMAKE_BINARY_DIR}/AC30Resources")
+	file (MAKE_DIRECTORY "${APIDevKitResourcesPath}")
+	file (COPY
+		"${AddOnResourcesFolderAbsolute}/RFIX"
+		"${AddOnResourcesFolderAbsolute}/R${AC_ADDON_LANGUAGE}"
+		"${AddOnResourcesFolderAbsolute}/RFIX.win"
+		DESTINATION "${APIDevKitResourcesPath}"
+	)
+	set (AC30NativeResourceFile "${APIDevKitResourcesPath}/RFIX.win/AddOnMain.rc2")
+	file (READ "${AC30NativeResourceFile}" AC30NativeResourceContent)
+	string (REPLACE "#include \"AddOnFix.grc.rc2\"" "" AC30NativeResourceContent "${AC30NativeResourceContent}")
+	file (WRITE "${AC30NativeResourceFile}" "${AC30NativeResourceContent}")
+endif ()
 get_filename_component (APIDevKitToolsFolderAbsolute "${AC_API_DEVKIT_DIR}/Support/Tools" ABSOLUTE)
 set (APIDevKitCompileResourcesScript "${APIDevKitToolsFolderAbsolute}/CompileResources.py")
 if (NOT EXISTS "${APIDevKitCompileResourcesScript}")
@@ -194,7 +212,7 @@ if (WIN32)
 		set (CompileResourcesArguments
 			"${AC_ADDON_NAME}" "${AC_ADDON_LANGUAGE}" "${AC_ADDON_LANGUAGE}"
 			"${ARCHICAD_VERSION}" "${AC_API_DEVKIT_BUILD_NUMBER}" "${APIDevKitResourceCompilerRoot}"
-			"${AddOnSourcesFolderAbsolute}" "${AddOnResourcesFolderAbsolute}"
+			"${AddOnSourcesFolderAbsolute}" "${APIDevKitResourcesPath}"
 			"${ResourceObjectsDir}" "${ResourceObjectsDir}/${AC_ADDON_NAME}.res"
 		)
 	else ()
@@ -217,7 +235,7 @@ else ()
 		set (CompileResourcesArguments
 			"${AC_ADDON_NAME}" "${AC_ADDON_LANGUAGE}" "${AC_ADDON_LANGUAGE}"
 			"${ARCHICAD_VERSION}" "${AC_API_DEVKIT_BUILD_NUMBER}" "${APIDevKitResourceCompilerRoot}"
-			"${AddOnSourcesFolderAbsolute}" "${AddOnResourcesFolderAbsolute}"
+			"${AddOnSourcesFolderAbsolute}" "${APIDevKitResourcesPath}"
 			"${ResourceObjectsDir}"
 			"${CMAKE_BINARY_DIR}/$<CONFIG>/${AC_ADDON_NAME}.bundle/Contents/Resources"
 		)
