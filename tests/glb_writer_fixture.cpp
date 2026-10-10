@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 template <class Operation> void RequireFailure (Operation operation, const char* message)
 {
@@ -281,5 +282,31 @@ int main (int argumentCount, char** arguments)
 	dedupOutput.write (dedupGlb.data (), static_cast<std::streamsize> (dedupGlb.size ()));
 	if (!dedupOutput)
 		throw std::runtime_error ("Cannot write deduplication GLB fixture");
+
+	DropView::Glb::Model indexWidthModel;
+	indexWidthModel.materials.emplace_back ();
+	for (std::uint32_t i = 0; i < 65537; ++i) {
+		indexWidthModel.positions.push_back ({static_cast<float> (i), static_cast<float> (i % 3), 0.0f});
+		indexWidthModel.normals.push_back ({0.0f, 0.0f, 1.0f});
+		indexWidthModel.textureCoordinates.push_back ({0.0f, 0.0f});
+	}
+	std::vector<std::uint32_t> shortIndices;
+	shortIndices.reserve (65538);
+	for (std::uint32_t i = 0; i < 65536; ++i)
+		shortIndices.push_back (i);
+	shortIndices.push_back (0);
+	shortIndices.push_back (1);
+	std::vector<std::uint32_t> longIndices = shortIndices;
+	longIndices[65536] = 65536;
+	indexWidthModel.groups = {{"index-width", "Index width boundary",
+	                           {{0, std::move (shortIndices)}, {0, std::move (longIndices)}}}};
+	const std::vector<char> indexWidthGlb = DropView::Glb::BuildBinary (indexWidthModel, "Index width test");
+	std::ofstream indexWidthOutput (std::string (arguments[1]) + ".index-width.glb",
+	                                std::ios::binary | std::ios::trunc);
+	if (!indexWidthOutput)
+		throw std::runtime_error ("Cannot create index-width GLB fixture");
+	indexWidthOutput.write (indexWidthGlb.data (), static_cast<std::streamsize> (indexWidthGlb.size ()));
+	if (!indexWidthOutput)
+		throw std::runtime_error ("Cannot write index-width GLB fixture");
 	return 0;
 }

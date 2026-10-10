@@ -7,6 +7,7 @@
 #include <cstring>
 #include <functional>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -23,6 +24,7 @@ constexpr std::uint32_t GlbVersion = 2;
 constexpr std::uint32_t JsonChunk = 0x4E4F534A;
 constexpr std::uint32_t BinaryChunk = 0x004E4942;
 constexpr int FloatComponent = 5126;
+constexpr int UnsignedShortComponent = 5123;
 constexpr int UnsignedIntComponent = 5125;
 constexpr int ArrayBuffer = 34962;
 constexpr int ElementArrayBuffer = 34963;
@@ -411,7 +413,19 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			const std::size_t normalView = layout.AddTypedBufferView (packed.normals, Constant::ArrayBuffer);
 			const std::size_t textureCoordinateView =
 			    layout.AddTypedBufferView (packed.textureCoordinates, Constant::ArrayBuffer);
-			const std::size_t indexView = layout.AddTypedBufferView (packed.indices, Constant::ElementArrayBuffer);
+			std::size_t indexView;
+			int indexComponentType;
+			if (packed.positions.size () <= static_cast<std::size_t> (std::numeric_limits<std::uint16_t>::max ()) + 1) {
+				std::vector<std::uint16_t> compactIndices;
+				compactIndices.reserve (packed.indices.size ());
+				std::transform (packed.indices.begin (), packed.indices.end (), std::back_inserter (compactIndices),
+				                [] (std::uint32_t index) { return static_cast<std::uint16_t> (index); });
+				indexView = layout.AddTypedBufferView (compactIndices, Constant::ElementArrayBuffer);
+				indexComponentType = Constant::UnsignedShortComponent;
+			} else {
+				indexView = layout.AddTypedBufferView (packed.indices, Constant::ElementArrayBuffer);
+				indexComponentType = Constant::UnsignedIntComponent;
+			}
 			primitiveReferences.back ().push_back (
 			    {primitive.materialIndex,
 			     layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
@@ -419,7 +433,7 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			     layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
 			     layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
 			                         "VEC2"),
-			     layout.AddAccessor (indexView, Constant::UnsignedIntComponent, packed.indices.size (), "SCALAR")});
+			     layout.AddAccessor (indexView, indexComponentType, packed.indices.size (), "SCALAR")});
 		}
 	}
 

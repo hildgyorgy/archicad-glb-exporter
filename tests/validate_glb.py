@@ -17,7 +17,7 @@ def require(condition: bool, message: str) -> None:
 def read_accessor(document: dict, binary: bytes, accessor_index: int) -> list[tuple]:
     accessor = document["accessors"][accessor_index]
     view = document["bufferViews"][accessor["bufferView"]]
-    component_formats = {5125: "I", 5126: "f"}
+    component_formats = {5123: "H", 5125: "I", 5126: "f"}
     component_counts = {"SCALAR": 1, "VEC2": 2, "VEC3": 3}
     count = component_counts[accessor["type"]]
     item_format = "<" + component_formats[accessor["componentType"]] * count
@@ -34,6 +34,7 @@ def main() -> None:
         data = output.read_bytes()
         orthographic_data = pathlib.Path(str(output) + ".ortho.glb").read_bytes()
         dedup_data = pathlib.Path(str(output) + ".dedup.glb").read_bytes()
+        index_width_data = pathlib.Path(str(output) + ".index-width.glb").read_bytes()
 
     require(len(data) >= 28, "GLB is shorter than its header and two chunk headers")
     magic, version, declared_length = struct.unpack_from("<III", data)
@@ -200,7 +201,7 @@ def main() -> None:
         if "target" in view:
             require(view["target"] in (34962, 34963), "unexpected buffer target")
 
-    component_sizes = {5125: 4, 5126: 4}
+    component_sizes = {5123: 2, 5125: 4, 5126: 4}
     component_counts = {"SCALAR": 1, "VEC2": 2, "VEC3": 3}
     accessors = document["accessors"]
     for accessor in accessors:
@@ -247,6 +248,8 @@ def main() -> None:
         require(read_accessor(document, binary, primitive["attributes"]["POSITION"]) == expected_positions[primitive_index],
                 "position data changed")
         require(read_accessor(document, binary, primitive["indices"]) == [(0,), (1,), (2,)], "index data changed")
+        require(accessors[primitive["indices"]]["componentType"] == 5123,
+                "small primitives should use 16-bit indices")
 
     materials = document["materials"]
     require(document["extensionsUsed"] == ["KHR_materials_transmission", "KHR_materials_ior"],
@@ -334,6 +337,8 @@ def main() -> None:
     require([dedup_document["accessors"][primitive["attributes"]["POSITION"]]["count"]
              for primitive in dedup_primitives] == [5, 3],
             "only identical vertices within the same primitive should be merged")
+    require(all(dedup_document["accessors"][primitive["indices"]]["componentType"] == 5123
+                for primitive in dedup_primitives), "deduplicated small primitives should use 16-bit indices")
     require(read_accessor(dedup_document, dedup_binary, dedup_primitives[0]["indices"]) ==
             [(0,), (1,), (2,), (0,), (3,), (4,), (0,), (1,), (2,)],
             "duplicate source vertices were not remapped while UV/normal seams stayed separate")
@@ -357,6 +362,24 @@ def main() -> None:
             expected = struct.pack("<8f", *(source_positions[source_index] + source_normals[source_index] +
                                              source_uvs[source_index]))
             require(actual == expected, "deduplication altered a triangle corner's float bits")
+
+    index_json_length, index_json_type = struct.unpack_from("<II", index_width_data, 12)
+    require(index_json_type == 0x4E4F534A, "index-width fixture has no JSON chunk")
+    index_document = json.loads(index_width_data[20:20 + index_json_length].decode("utf-8").rstrip(" \0"))
+    index_binary = index_width_data[20 + index_json_length + 8:]
+    index_primitives = index_document["meshes"][0]["primitives"]
+    require(len(index_primitives) == 2, "index-width fixture lost a primitive")
+    require([index_document["accessors"][p["attributes"]["POSITION"]]["count"] for p in index_primitives]
+            == [65536, 65537], "index-width fixture does not straddle the 16-bit limit")
+    require([index_document["accessors"][p["indices"]]["componentType"] for p in index_primitives]
+            == [5123, 5125], "16-bit indices were not selected exactly at the 65536-vertex boundary")
+    for primitive, expected_tail, component_size in zip(index_primitives, [(0, 1), (65536, 1)], [2, 4]):
+        accessor = index_document["accessors"][primitive["indices"]]
+        view = index_document["bufferViews"][accessor["bufferView"]]
+        require(view["byteLength"] == 65538 * component_size, "index buffer has the wrong byte length")
+        actual_indices = [item[0] for item in read_accessor(index_document, index_binary, primitive["indices"])]
+        require(actual_indices == list(range(65536)) + list(expected_tail),
+                "index values or triangle order changed at the 16-bit boundary")
 
 
 if __name__ == "__main__":
