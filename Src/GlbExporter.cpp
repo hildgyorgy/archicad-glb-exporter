@@ -122,20 +122,18 @@ public:
 		glassDescription.SetText (
 		    "Select the surfaces to export as clear, physically transparent glass. Other transparent surfaces "
 		    "will retain their original Archicad appearance. Click a row to check or uncheck it.");
-		glassList.SetTabFieldCount (2);
-		glassList.SetTabFieldProperties (1, 0, 42, DG::ListBox::Center, DG::ListBox::NoTruncate);
-		glassList.SetTabFieldProperties (2, 44, 714, DG::ListBox::Left, DG::ListBox::EndTruncate);
+		glassList.SetTabFieldCount (1);
+		glassList.SetTabFieldProperties (1, 0, 714, DG::ListBox::Left, DG::ListBox::EndTruncate);
 		glassList.SetItemHeight (22);
 		for (std::size_t index = 0; index < clearGlassCandidates.size (); ++index) {
 			glassList.AppendItem ();
 			const short item = static_cast<short> (index + 1);
-			glassList.SetTabItemText (item, 2, clearGlassCandidates[index].details.c_str ());
 			UpdateGlassCheckMarker (item);
 		}
 		if (clearGlassCandidates.empty ()) {
 			glassList.AppendItem ();
 			glassList.SetTabItemText (
-			    1, 2, "No non-cutout surfaces with at least 50% transparency were found in the active 3D view.");
+			    1, 1, "No non-cutout surfaces with at least 50% transparency were found in the active 3D view.");
 			glassList.DisableItem (1);
 		}
 		cancelButton.SetText ("Cancel");
@@ -203,8 +201,9 @@ private:
 
 	void UpdateGlassCheckMarker (short item)
 	{
-		const bool selected = clearGlassCandidates[static_cast<std::size_t> (item - 1)].selected;
-		glassList.SetTabItemText (item, 1, selected ? "[x]" : "[ ]");
+		const ClearGlassCandidate& candidate = clearGlassCandidates[static_cast<std::size_t> (item - 1)];
+		const std::string row = (candidate.selected ? "[x]  " : "[ ]  ") + candidate.details;
+		glassList.SetTabItemText (item, 1, row.c_str ());
 	}
 
 	DG::LeftText groupingPrompt;

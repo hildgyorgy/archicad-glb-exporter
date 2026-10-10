@@ -4,10 +4,12 @@ The **Publish Full Release** GitHub Actions workflow builds and publishes one re
 
 - Archicad 28 for macOS 26 on Apple Silicon;
 - Archicad 29 for macOS 26 on Apple Silicon;
+- Archicad 30 for macOS 26 on Apple Silicon;
 - Archicad 28 for Windows 11 x64;
-- Archicad 29 for Windows 11 x64.
+- Archicad 29 for Windows 11 x64;
+- Archicad 30 for Windows 11 x64.
 
-It downloads the matching official Graphisoft API DevKits, compiles all four add-ons from the same commit, signs and notarizes the macOS bundles and DMG, creates both platform packages and their SHA-256 files, and attaches all four files to a GitHub release.
+It downloads the matching official Graphisoft API DevKits, compiles all six add-ons from the same commit, signs and notarizes the macOS bundles and DMG, creates both platform packages and their SHA-256 files, and attaches all four files to a GitHub release.
 
 ## Required repository secrets
 
@@ -37,4 +39,4 @@ Paste the copied value directly into the `MACOS_CERTIFICATE_BASE64` GitHub Actio
 
 The workflow refuses invalid version strings and refuses to overwrite an existing release. A failure in any build, signing, notarization or packaging step prevents publication.
 
-The Windows APX files are currently not Authenticode-signed. They are compiled independently with the Archicad 28 and 29 Windows DevKits and packaged into one ZIP.
+The Windows APX files are currently not Authenticode-signed. They are compiled independently with the Archicad 28, 29, and 30 Windows DevKits and packaged into one ZIP.
