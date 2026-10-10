@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      replace_existing:
+        description: Replace an existing release and move its tag to this build (use only for a deliberate same-version rebuild)
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -67,6 +72,7 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       VERSION: ${{ needs.validate.outputs.version }}
+      REPLACE_EXISTING: ${{ inputs.replace_existing }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -88,16 +94,59 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$VERSION"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists; refusing to overwrite it." >&2
-            exit 1
-          fi
           mapfile -d '' assets < <(find release-assets -type f \
             \( -name '*.dmg' -o -name '*.zip' -o -name '*.sha256' \) -print0 | sort -z)
           if [[ "${#assets[@]}" -ne 4 ]]; then
             echo "Expected four release files, found ${#assets[@]}." >&2
             find release-assets -type f -print
             exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [[ "$REPLACE_EXISTING" != 'true' || "$GITHUB_REF" != 'refs/heads/main' ]]; then
+              echo "Release $tag already exists; explicit replacement from main is required." >&2
+              exit 1
+            fi
+            existing_tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq '.object.sha')"
+            if [[ -z "$existing_tag_sha" ]]; then
+              echo "Cannot resolve existing tag $tag." >&2
+              exit 1
+            fi
+            mkdir -p previous-release
+            gh release download "$tag" --dir previous-release
+            gh release view "$tag" --json body --jq '.body' > previous-release/RELEASE_NOTES.md
+            printf '%s\n' "$existing_tag_sha" > previous-release/tag-commit.txt
+            echo "Backed up $tag from $existing_tag_sha before replacement."
+          fi
+      - name: Save previous release assets
+        if: ${{ inputs.replace_existing }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: previous-v${{ env.VERSION }}-release
+          path: previous-release
+          if-no-files-found: ignore
+
+      - name: Create or update release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$VERSION"
+          mapfile -d '' assets < <(find release-assets -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.sha256' \) -print0 | sort -z)
+          if [[ "${#assets[@]}" -ne 4 ]]; then
+            echo "Expected four release files, found ${#assets[@]}." >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if [[ "$REPLACE_EXISTING" != 'true' || "$GITHUB_REF" != 'refs/heads/main' ]]; then
+              echo "Release $tag already exists; explicit replacement from main is required." >&2
+              exit 1
+            fi
+            gh release upload "$tag" "${assets[@]}" --clobber
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/$tag" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            gh release edit "$tag" --target "$GITHUB_SHA" --notes-file RELEASE_NOTES.md
+            echo "Updated release $tag and moved its tag to $GITHUB_SHA."
+            exit 0
           fi
           arguments=(release create "$tag" "${assets[@]}" \
             --target "$GITHUB_SHA" \
