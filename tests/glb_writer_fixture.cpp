@@ -262,5 +262,24 @@ int main (int argumentCount, char** arguments)
 	orthographicOutput.write (orthographicGlb.data (), static_cast<std::streamsize> (orthographicGlb.size ()));
 	if (!orthographicOutput)
 		throw std::runtime_error ("Cannot write orthographic GLB fixture");
+
+	DropView::Glb::Model dedupModel;
+	dedupModel.positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
+	                        {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
+	                        {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}};
+	dedupModel.normals.assign (9, {0.0f, 0.0f, 1.0f});
+	dedupModel.normals[5] = {0.0f, 1.0f, 0.0f};
+	dedupModel.textureCoordinates = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f},
+	                                 {0.0f, 0.0f}, {0.5f, 0.0f}, {0.0f, 1.0f},
+	                                 {0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
+	dedupModel.materials.emplace_back ();
+	dedupModel.groups = {{"dedup", "Deduplication", {{0, {0, 1, 2, 3, 4, 5, 6, 7, 8}}, {0, {6, 7, 8}}}}};
+	const std::vector<char> dedupGlb = DropView::Glb::BuildBinary (dedupModel, "Exact vertex deduplication test");
+	std::ofstream dedupOutput (std::string (arguments[1]) + ".dedup.glb", std::ios::binary | std::ios::trunc);
+	if (!dedupOutput)
+		throw std::runtime_error ("Cannot create deduplication GLB fixture");
+	dedupOutput.write (dedupGlb.data (), static_cast<std::streamsize> (dedupGlb.size ()));
+	if (!dedupOutput)
+		throw std::runtime_error ("Cannot write deduplication GLB fixture");
 	return 0;
 }

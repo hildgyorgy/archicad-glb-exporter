@@ -33,6 +33,7 @@ def main() -> None:
         subprocess.run([sys.argv[1], str(output)], check=True)
         data = output.read_bytes()
         orthographic_data = pathlib.Path(str(output) + ".ortho.glb").read_bytes()
+        dedup_data = pathlib.Path(str(output) + ".dedup.glb").read_bytes()
 
     require(len(data) >= 28, "GLB is shorter than its header and two chunk headers")
     magic, version, declared_length = struct.unpack_from("<III", data)
@@ -322,6 +323,40 @@ def main() -> None:
     image_view = views[document["images"][0]["bufferView"]]
     embedded_image = binary[image_view["byteOffset"]:image_view["byteOffset"] + image_view["byteLength"]]
     require(embedded_image == b"\x89PNG\r\n\x1a\ntest", "embedded image bytes changed")
+
+    dedup_json_length, dedup_json_type = struct.unpack_from("<II", dedup_data, 12)
+    require(dedup_json_type == 0x4E4F534A, "deduplication fixture has no JSON chunk")
+    dedup_document = json.loads(dedup_data[20:20 + dedup_json_length].decode("utf-8").rstrip(" \0"))
+    dedup_binary_start = 20 + dedup_json_length + 8
+    dedup_binary = dedup_data[dedup_binary_start:]
+    dedup_primitives = dedup_document["meshes"][0]["primitives"]
+    require(len(dedup_primitives) == 2, "deduplication changed the material-primitive boundary")
+    require([dedup_document["accessors"][primitive["attributes"]["POSITION"]]["count"]
+             for primitive in dedup_primitives] == [5, 3],
+            "only identical vertices within the same primitive should be merged")
+    require(read_accessor(dedup_document, dedup_binary, dedup_primitives[0]["indices"]) ==
+            [(0,), (1,), (2,), (0,), (3,), (4,), (0,), (1,), (2,)],
+            "duplicate source vertices were not remapped while UV/normal seams stayed separate")
+    require(read_accessor(dedup_document, dedup_binary, dedup_primitives[1]["indices"]) ==
+            [(0,), (1,), (2,)], "vertices were shared across material primitives")
+
+    source_positions = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)] * 3
+    source_normals = [(0.0, 0.0, 1.0)] * 9
+    source_normals[5] = (0.0, 1.0, 0.0)
+    source_uvs = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0),
+                  (0.0, 0.0), (0.5, 0.0), (0.0, 1.0),
+                  (0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
+    for primitive, source_indices in zip(dedup_primitives, [range(9), range(6, 9)]):
+        attributes = [read_accessor(dedup_document, dedup_binary, primitive["attributes"][semantic])
+                      for semantic in ("POSITION", "NORMAL", "TEXCOORD_0")]
+        indices = [index[0] for index in read_accessor(dedup_document, dedup_binary, primitive["indices"])]
+        for source_index, target_index in zip(source_indices, indices):
+            actual = struct.pack("<8f", *(attribute[target_index][component]
+                                         for attribute in attributes
+                                         for component in range(len(attribute[target_index]))))
+            expected = struct.pack("<8f", *(source_positions[source_index] + source_normals[source_index] +
+                                             source_uvs[source_index]))
+            require(actual == expected, "deduplication altered a triangle corner's float bits")
 
 
 if __name__ == "__main__":

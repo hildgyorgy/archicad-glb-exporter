@@ -2,8 +2,10 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -38,6 +40,28 @@ struct PackedGeometry {
 	              std::numeric_limits<float>::max ()};
 	Vec3 maximum {-minimum.x, -minimum.y, -minimum.z};
 };
+
+using VertexKey = std::array<std::uint32_t, 8>;
+
+struct VertexKeyHash {
+	std::size_t operator() (const VertexKey& key) const
+	{
+		std::size_t hash = 0;
+		for (const std::uint32_t component : key)
+			hash ^= std::hash<std::uint32_t> {} (component) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
+		return hash;
+	}
+};
+
+VertexKey MakeVertexKey (const Vec3& position, const Vec3& normal, const Vec2& textureCoordinate)
+{
+	// Compare the eight stored float components, not struct bytes (which may contain padding).
+	// Bitwise equality avoids welding across even the smallest normal or UV difference.
+	return {std::bit_cast<std::uint32_t> (position.x), std::bit_cast<std::uint32_t> (position.y),
+	        std::bit_cast<std::uint32_t> (position.z), std::bit_cast<std::uint32_t> (normal.x),
+	        std::bit_cast<std::uint32_t> (normal.y), std::bit_cast<std::uint32_t> (normal.z),
+	        std::bit_cast<std::uint32_t> (textureCoordinate.u), std::bit_cast<std::uint32_t> (textureCoordinate.v)};
+}
 
 struct BufferView {
 	std::uint32_t offset;
@@ -294,17 +318,21 @@ PackedGeometry PackGeometry (const Model& model, const Primitive& primitive)
 		throw std::invalid_argument ("Every primitive must contain complete triangles");
 
 	PackedGeometry packed;
-	std::unordered_map<std::uint32_t, std::uint32_t> remappedIndices;
+	std::unordered_map<VertexKey, std::uint32_t, VertexKeyHash> remappedIndices;
 	for (const std::uint32_t sourceIndex : primitive.indices) {
 		if (sourceIndex >= model.positions.size ())
 			throw std::out_of_range ("Primitive index exceeds the vertex arrays");
-		auto remapped = remappedIndices.find (sourceIndex);
+		const Vec3& position = model.positions[sourceIndex];
+		const Vec3& normal = model.normals[sourceIndex];
+		const Vec2& textureCoordinate = model.textureCoordinates[sourceIndex];
+		const VertexKey key = MakeVertexKey (position, normal, textureCoordinate);
+		auto remapped = remappedIndices.find (key);
 		if (remapped == remappedIndices.end ()) {
 			const std::uint32_t targetIndex = CheckedU32 (packed.positions.size (), "Vertex count");
-			remappedIndices[sourceIndex] = targetIndex;
-			packed.positions.push_back (model.positions[sourceIndex]);
-			packed.normals.push_back (model.normals[sourceIndex]);
-			packed.textureCoordinates.push_back (model.textureCoordinates[sourceIndex]);
+			remappedIndices.emplace (key, targetIndex);
+			packed.positions.push_back (position);
+			packed.normals.push_back (normal);
+			packed.textureCoordinates.push_back (textureCoordinate);
 			const Vec3& point = packed.positions.back ();
 			packed.minimum.x = std::min (packed.minimum.x, point.x);
 			packed.minimum.y = std::min (packed.minimum.y, point.y);
