@@ -1,6 +1,7 @@
 #include "SurfaceNormals.hpp"
 
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 using namespace GlbGeometry;
@@ -45,4 +46,16 @@ int main ()
 	}
 	Require (NearlyEqual (smooth[0].at (0)[0], 0.0) && NearlyEqual (smooth[0].at (0)[2], 1.0),
 	         "Smoothing crossed an unrelated corner");
+
+	Require (!TryNormalizeNormal ({0.0, 0.0, 0.0}).has_value (), "Zero-length normal was accepted");
+	Require (!TryNormalizeNormal ({std::numeric_limits<double>::quiet_NaN (), 0.0, 1.0}).has_value (),
+	         "Non-finite normal was accepted");
+	const std::vector<SmoothingFace> oppositeFaces = {
+	    {true, {{{0, 1, 2}}}, {0.0, 0.0, 1.0}}, {true, {{{0, 1, 2}}}, {0.0, 0.0, -1.0}}};
+	const CornerNormals cancelled = CalculateCornerNormals (vertices, oppositeFaces, {{0, 1, 0, 1, true}});
+	for (std::uint32_t sharedVertex : {0U, 1U})
+		Require (!cancelled[0].contains (sharedVertex) && !cancelled[1].contains (sharedVertex),
+		         "Opposing smoothed normals must fall back to each face normal");
+	Require (NearlyEqual (cancelled[0].at (2)[2], 1.0) && NearlyEqual (cancelled[1].at (2)[2], -1.0),
+	         "Unrelated face normals changed when a smooth corner cancelled out");
 }

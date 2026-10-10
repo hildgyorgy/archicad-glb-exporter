@@ -35,6 +35,7 @@ def main() -> None:
         orthographic_data = pathlib.Path(str(output) + ".ortho.glb").read_bytes()
         dedup_data = pathlib.Path(str(output) + ".dedup.glb").read_bytes()
         index_width_data = pathlib.Path(str(output) + ".index-width.glb").read_bytes()
+        precision_data = pathlib.Path(str(output) + ".precision.glb").read_bytes()
 
     require(len(data) >= 28, "GLB is shorter than its header and two chunk headers")
     magic, version, declared_length = struct.unpack_from("<III", data)
@@ -380,6 +381,19 @@ def main() -> None:
         actual_indices = [item[0] for item in read_accessor(index_document, index_binary, primitive["indices"])]
         require(actual_indices == list(range(65536)) + list(expected_tail),
                 "index values or triangle order changed at the 16-bit boundary")
+
+    precision_json_length, precision_json_type = struct.unpack_from("<II", precision_data, 12)
+    require(precision_json_type == 0x4E4F534A, "precision fixture has no JSON chunk")
+    precision_document = json.loads(precision_data[20:20 + precision_json_length].decode("utf-8").rstrip(" \0"))
+    precision_binary = precision_data[20 + precision_json_length + 8:]
+    position_accessor_index = precision_document["meshes"][0]["primitives"][0]["attributes"]["POSITION"]
+    position_accessor = precision_document["accessors"][position_accessor_index]
+    positions = read_accessor(precision_document, precision_binary, position_accessor_index)
+    for bound_name, operation in (("min", min), ("max", max)):
+        for component in range(3):
+            actual = struct.pack("<f", position_accessor[bound_name][component])
+            expected = struct.pack("<f", operation(point[component] for point in positions))
+            require(actual == expected, f"{bound_name} lost the exact binary float bound for component {component}")
 
 
 if __name__ == "__main__":

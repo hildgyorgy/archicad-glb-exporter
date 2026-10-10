@@ -825,14 +825,17 @@ std::vector<WindowLight> CollectWindowLights ()
 	return lights;
 }
 
-Vec3 ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reverse)
+std::optional<Vec3> ConvertNormal (const API_Tranmat& transform, API_VectType normal, bool reverse)
 {
 	const double sign = reverse ? -1.0 : 1.0;
 	const double x = sign * (transform.tmx[0] * normal.x + transform.tmx[1] * normal.y + transform.tmx[2] * normal.z);
 	const double y = sign * (transform.tmx[4] * normal.x + transform.tmx[5] * normal.y + transform.tmx[6] * normal.z);
 	const double z = sign * (transform.tmx[8] * normal.x + transform.tmx[9] * normal.y + transform.tmx[10] * normal.z);
-	const double length = std::sqrt (x * x + y * y + z * z);
-	return {static_cast<float> (x / length), static_cast<float> (z / length), static_cast<float> (-y / length)};
+	const auto normalized = GlbGeometry::TryNormalizeNormal ({x, y, z});
+	if (!normalized.has_value ())
+		return std::nullopt;
+	return Vec3 {static_cast<float> ((*normalized)[0]), static_cast<float> ((*normalized)[2]),
+	             static_cast<float> (-(*normalized)[1])};
 }
 
 std::vector<std::vector<Int32>> GetPolygonContours (const API_PgonType& polygon, Int32 bodyVertexCount)
@@ -1230,7 +1233,9 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 	if (ACAPI_ModelAccess_GetComponent (&component) != NoError)
 		return;
 
-	const Vec3 normal = ConvertNormal (transform, component.vect, polygon.ivect < 0);
+	const auto normal = ConvertNormal (transform, component.vect, polygon.ivect < 0);
+	if (!normal.has_value ())
+		throw std::runtime_error ("Invalid transformed polygon normal");
 	const double normalSign = polygon.ivect < 0 ? -1.0 : 1.0;
 	const GlbGeometry::Point localNormal {normalSign * component.vect.x, normalSign * component.vect.y,
 	                                      normalSign * component.vect.z};
@@ -1270,7 +1275,7 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 		for (Int32 vertexIndex : ring) {
 			const API_VertType& vertex = vertices[flattenedVertexIndex++];
 			model.positions.push_back (ConvertPosition (transform, vertex));
-			Vec3 cornerNormal = normal;
+			Vec3 cornerNormal = *normal;
 			if (polygonIndex > 0 && static_cast<std::size_t> (polygonIndex) <= cornerNormals.size ()) {
 				const auto found = cornerNormals[static_cast<std::size_t> (polygonIndex - 1)].find (
 				    static_cast<std::uint32_t> (vertexIndex));
@@ -1279,7 +1284,9 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 					localCornerNormal.x = found->second[0];
 					localCornerNormal.y = found->second[1];
 					localCornerNormal.z = found->second[2];
-					cornerNormal = ConvertNormal (transform, localCornerNormal, false);
+					if (const auto smoothNormal = ConvertNormal (transform, localCornerNormal, false);
+					    smoothNormal.has_value ())
+						cornerNormal = *smoothNormal;
 				}
 			}
 			model.normals.push_back (cornerNormal);

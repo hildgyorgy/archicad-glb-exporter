@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,18 @@ struct SmoothingEdge {
 };
 
 using CornerNormals = std::vector<std::map<std::uint32_t, Point>>;
+
+inline std::optional<Point> TryNormalizeNormal (Point value)
+{
+	if (!std::isfinite (value[0]) || !std::isfinite (value[1]) || !std::isfinite (value[2]))
+		return std::nullopt;
+	const double length = std::hypot (value[0], value[1], value[2]);
+	if (!std::isfinite (length) || length <= 1.0e-12)
+		return std::nullopt;
+	for (double& component : value)
+		component /= length;
+	return value;
+}
 
 namespace Detail {
 
@@ -64,12 +77,7 @@ private:
 
 inline Point Normalize (Point value)
 {
-	const double length = std::sqrt (value[0] * value[0] + value[1] * value[1] + value[2] * value[2]);
-	if (length <= 1.0e-12)
-		return {};
-	for (double& component : value)
-		component /= length;
-	return value;
+	return TryNormalizeNormal (value).value_or (Point {});
 }
 
 inline double CornerAngle (const Point& previous, const Point& current, const Point& next)
@@ -137,8 +145,10 @@ inline CornerNormals CalculateCornerNormals (const std::vector<Point>& vertices,
 	}
 
 	CornerNormals result (faces.size ());
-	for (const auto& [corner, id] : cornerIds)
-		result[corner.first][corner.second] = Detail::Normalize (sums[sets.Find (id)]);
+	for (const auto& [corner, id] : cornerIds) {
+		if (const auto normal = TryNormalizeNormal (sums[sets.Find (id)]); normal.has_value ())
+			result[corner.first][corner.second] = *normal;
+	}
 	return result;
 }
 

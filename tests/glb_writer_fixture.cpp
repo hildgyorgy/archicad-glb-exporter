@@ -4,6 +4,7 @@
 #include <fstream>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 
@@ -238,6 +239,18 @@ int main (int argumentCount, char** arguments)
 		    (void)DropView::Glb::BuildBinary (model, "invalid material");
 	    },
 	    "Out-of-range material index was accepted");
+	RequireFailure (
+	    [model] () mutable {
+		    model.normals[0].x = std::numeric_limits<float>::quiet_NaN ();
+		    (void)DropView::Glb::BuildBinary (model, "invalid normal");
+	    },
+	    "Non-finite normal was written to a GLB");
+	RequireFailure (
+	    [model] () mutable {
+		    model.positions[0].x = std::numeric_limits<float>::infinity ();
+		    (void)DropView::Glb::BuildBinary (model, "invalid position");
+	    },
+	    "Non-finite position was written to a GLB");
 	std::ofstream output (arguments[1], std::ios::binary | std::ios::trunc);
 	if (!output)
 		throw std::runtime_error ("Cannot create GLB fixture");
@@ -308,5 +321,21 @@ int main (int argumentCount, char** arguments)
 	indexWidthOutput.write (indexWidthGlb.data (), static_cast<std::streamsize> (indexWidthGlb.size ()));
 	if (!indexWidthOutput)
 		throw std::runtime_error ("Cannot write index-width GLB fixture");
+
+	DropView::Glb::Model precisionModel;
+	precisionModel.positions = {{6.707906246185303f, -8.881784197001252e-16f, 0.0f},
+	                            {7.0f, 0.0f, 0.0f}, {6.707906246185303f, 1.0f, 0.0f}};
+	precisionModel.normals.assign (3, {0.0f, 0.0f, 1.0f});
+	precisionModel.textureCoordinates.assign (3, {0.0f, 0.0f});
+	precisionModel.materials.emplace_back ();
+	precisionModel.groups = {{"precision", "Float bounds", {{0, {0, 1, 2}}}}};
+	const std::vector<char> precisionGlb = DropView::Glb::BuildBinary (precisionModel, "Float bounds test");
+	std::ofstream precisionOutput (std::string (arguments[1]) + ".precision.glb",
+	                               std::ios::binary | std::ios::trunc);
+	if (!precisionOutput)
+		throw std::runtime_error ("Cannot create precision GLB fixture");
+	precisionOutput.write (precisionGlb.data (), static_cast<std::streamsize> (precisionGlb.size ()));
+	if (!precisionOutput)
+		throw std::runtime_error ("Cannot write precision GLB fixture");
 	return 0;
 }

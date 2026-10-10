@@ -208,6 +208,16 @@ void WriteVec3 (std::ostringstream& json, const Vec3& value)
 	json << '[' << value.x << ',' << value.y << ',' << value.z << ']';
 }
 
+void WriteAccessorBound (std::ostringstream& json, const Vec3& value)
+{
+	const auto flags = json.flags ();
+	const auto precision = json.precision ();
+	json << std::defaultfloat << std::setprecision (std::numeric_limits<float>::max_digits10);
+	WriteVec3 (json, value);
+	json.flags (flags);
+	json.precision (precision);
+}
+
 template <std::size_t Size> void WriteDoubleArray (std::ostringstream& json, const std::array<double, Size>& values)
 {
 	json << '[';
@@ -327,6 +337,10 @@ PackedGeometry PackGeometry (const Model& model, const Primitive& primitive)
 		const Vec3& position = model.positions[sourceIndex];
 		const Vec3& normal = model.normals[sourceIndex];
 		const Vec2& textureCoordinate = model.textureCoordinates[sourceIndex];
+		if (!std::isfinite (position.x) || !std::isfinite (position.y) || !std::isfinite (position.z) ||
+		    !std::isfinite (normal.x) || !std::isfinite (normal.y) || !std::isfinite (normal.z) ||
+		    !std::isfinite (textureCoordinate.u) || !std::isfinite (textureCoordinate.v))
+			throw std::invalid_argument ("Primitive contains a non-finite vertex attribute");
 		const VertexKey key = MakeVertexKey (position, normal, textureCoordinate);
 		auto remapped = remappedIndices.find (key);
 		if (remapped == remappedIndices.end ()) {
@@ -767,12 +781,14 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		const Accessor& accessor = layout.accessors[i];
 		json << "{\"bufferView\":" << accessor.bufferView << ",\"componentType\":" << accessor.componentType
 		     << ",\"count\":" << accessor.count << ",\"type\":\"" << accessor.type << '\"';
-		if (accessor.minimum.has_value ())
-			json << ",\"min\":[" << accessor.minimum->x << ',' << accessor.minimum->y << ',' << accessor.minimum->z
-			     << ']';
-		if (accessor.maximum.has_value ())
-			json << ",\"max\":[" << accessor.maximum->x << ',' << accessor.maximum->y << ',' << accessor.maximum->z
-			     << ']';
+		if (accessor.minimum.has_value ()) {
+			json << ",\"min\":";
+			WriteAccessorBound (json, *accessor.minimum);
+		}
+		if (accessor.maximum.has_value ()) {
+			json << ",\"max\":";
+			WriteAccessorBound (json, *accessor.maximum);
+		}
 		json << '}';
 	}
 	json << "]}";
