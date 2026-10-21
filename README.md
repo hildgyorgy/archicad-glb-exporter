@@ -53,6 +53,10 @@ normal image, reflection-layer roughness and image, conductor Fresnel metallic
 flag, IOR, luminance and transparency to glTF PBR properties. Only enabled
 channels are used. Maxon texture sizes use their own UV transform. If a
 surface has no readable Maxon parameters, its Basic material is used.
+For opaque surfaces whose Maxon reflectance resolves to fully rough despite
+strong Archicad specular/shininess values, an experimental gloss fallback
+estimates roughness from that Archicad shininess. This does not reconstruct
+multiple reflectance layers or procedural reflection textures.
 
 **Both** keeps Basic materials as the default appearance and writes Maxon
 materials as a `KHR_materials_variants` choice named `Maxon / Redshift PBR`.

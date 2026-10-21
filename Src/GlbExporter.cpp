@@ -583,7 +583,8 @@ Material ReadMaxonMaterial (const Material& basic, const ModelerAPI::Model& sigh
 	}
 	const std::string layerList = parameters.String ("C4D_CHRFL_RLS");
 	const std::string layer = LinkedParameterId (parameters, layerList, "RLS_REFLAYER");
-	if (parameters.Number ("C4D_CHRFL_STATE", 1.0) != 0.0 && !layer.empty ()) {
+	const bool reflectanceEnabled = parameters.Number ("C4D_CHRFL_STATE", 1.0) != 0.0;
+	if (reflectanceEnabled && !layer.empty ()) {
 		const std::string roughnessSettings = LinkedParameterId (parameters, layer, "REFLAYER_RLWR");
 		if (!roughnessSettings.empty ()) {
 			result.roughness = std::clamp (
@@ -628,6 +629,8 @@ Material ReadMaxonMaterial (const Material& basic, const ModelerAPI::Model& sigh
 		result.transmission = 1.0;
 		result.ior = parameters.Number ("C4D_CHTRA_REFRACTION", 1.5);
 	}
+	const bool hasReflectance = parameters.numbers.contains ("C4D_CHRFL_STATE") || !layerList.empty ();
+	DropView::MaterialConversion::ApplyMissingMaxonGloss (basic, reflectanceEnabled && hasReflectance, result);
 	return result;
 }
 

@@ -41,6 +41,20 @@ inline void ApplyEmissionColor (double red, double green, double blue, double at
 	material.emissiveBlue = SrgbToLinear (blue) * emissionFactor;
 }
 
+// Archicad's legacy shine is a Phong exponent multiplied by 100. Use it only
+// as a conservative fallback when Maxon's layered reflectance produced a fully
+// rough result despite a clearly glossy opaque source surface.
+inline void ApplyMissingMaxonGloss (const DropView::Glb::Material& basic, bool reflectanceEnabled,
+                                    DropView::Glb::Material& maxon)
+{
+	if (!reflectanceEnabled || maxon.roughness < 0.999 || basic.sourceTransparencyPercent > 0.0 ||
+	    maxon.transmission > 0.0 || maxon.alpha < 1.0 ||
+	    basic.sourceSpecularPercent < 60.0 || basic.sourceShine < 1000.0)
+		return;
+	const double phongExponent = basic.sourceShine / 100.0;
+	maxon.roughness = std::clamp (std::sqrt (2.0 / (phongExponent + 2.0)), 0.04, 1.0);
+}
+
 inline bool UsesAlphaCutout (bool imageHasAlpha, bool useAlpha, bool transparencyPattern,
                              double transparencyPercent)
 {

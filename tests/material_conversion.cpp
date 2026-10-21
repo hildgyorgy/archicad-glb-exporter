@@ -24,6 +24,7 @@ int main ()
 	using DropView::MaterialConversion::ApplyTransparency;
 	using DropView::MaterialConversion::ApplySurfaceColor;
 	using DropView::MaterialConversion::ApplyEmissionColor;
+	using DropView::MaterialConversion::ApplyMissingMaxonGloss;
 	using DropView::MaterialConversion::ArchicadMaterialProperties;
 	using DropView::MaterialConversion::IsClearGlassCandidate;
 	using DropView::MaterialConversion::IsHighConfidenceClearGlass;
@@ -48,6 +49,32 @@ int main ()
 	RequireNear (beige.emissiveGreen, 0.6239603916750761 * 0.4, "emissive green or strength changed");
 	RequireNear (beige.emissiveBlue, 0.4072402119017367 * 0.4, "emissive blue or strength changed");
 	RequireNear (beige.alpha, 0.4, "emissive conversion changed coverage alpha");
+
+	DropView::Glb::Material glossyPaint;
+	glossyPaint.sourceSpecularPercent = 90.0;
+	glossyPaint.sourceShine = 7440.0;
+	DropView::Glb::Material maxonPaint = glossyPaint;
+	ApplyMissingMaxonGloss (glossyPaint, true, maxonPaint);
+	RequireNear (maxonPaint.roughness, std::sqrt (2.0 / 76.4),
+	             "glossy opaque paint remained fully rough after Maxon reflectance fallback");
+	RequireNear (maxonPaint.metallic, 0.0, "paint was incorrectly turned into a metal");
+	DropView::Glb::Material alreadyMappedPaint = glossyPaint;
+	alreadyMappedPaint.roughness = 0.25;
+	ApplyMissingMaxonGloss (glossyPaint, true, alreadyMappedPaint);
+	RequireNear (alreadyMappedPaint.roughness, 0.25, "explicit Maxon roughness was overwritten");
+	DropView::Glb::Material disabledReflectance = glossyPaint;
+	ApplyMissingMaxonGloss (glossyPaint, false, disabledReflectance);
+	RequireNear (disabledReflectance.roughness, 1.0, "disabled Maxon reflectance became glossy");
+	DropView::Glb::Material transparentSource = glossyPaint;
+	transparentSource.sourceTransparencyPercent = 50.0;
+	DropView::Glb::Material transparentMaxon = transparentSource;
+	ApplyMissingMaxonGloss (transparentSource, true, transparentMaxon);
+	RequireNear (transparentMaxon.roughness, 1.0, "transparent Maxon surface received opaque-paint gloss");
+	DropView::Glb::Material matteSource = glossyPaint;
+	matteSource.sourceSpecularPercent = 10.0;
+	DropView::Glb::Material matteMaxon = matteSource;
+	ApplyMissingMaxonGloss (matteSource, true, matteMaxon);
+	RequireNear (matteMaxon.roughness, 1.0, "matte source surface became glossy");
 
 	Require (UsesAlphaCutout (true, true, true, 0.0), "explicit Archicad alpha cutout was ignored");
 	Require (UsesAlphaCutout (true, false, false, 80.0), "transparent RGBA cutout was ignored");
