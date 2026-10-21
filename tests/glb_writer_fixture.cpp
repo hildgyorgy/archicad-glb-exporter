@@ -337,5 +337,25 @@ int main (int argumentCount, char** arguments)
 	precisionOutput.write (precisionGlb.data (), static_cast<std::streamsize> (precisionGlb.size ()));
 	if (!precisionOutput)
 		throw std::runtime_error ("Cannot write precision GLB fixture");
+
+	DropView::Glb::Model variantModel;
+	variantModel.positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}};
+	variantModel.normals.assign (3, {0.0f, 0.0f, 1.0f});
+	variantModel.textureCoordinates = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
+	variantModel.alternateTextureCoordinates = {{0.0f, 0.0f}, {2.0f, 0.0f}, {0.0f, 2.0f}};
+	variantModel.materials = {opaqueTextured, opaqueTextured};
+	variantModel.materials[1].name = "Maxon PBR";
+	variantModel.materials[1].textureCoordinateSet = 1;
+	variantModel.materials[1].multiplyBaseColorTexture = true;
+	variantModel.materials[1].red = 0.5;
+	variantModel.alternateMaterialVariantName = "Maxon / Redshift PBR";
+	variantModel.groups = {{"variant", "Variant", {{0, {0, 1, 2}, 1}}}};
+	const std::vector<char> variantGlb = DropView::Glb::BuildBinary (variantModel, "Variant test");
+	std::ofstream variantOutput (std::string (arguments[1]) + ".variant.glb", std::ios::binary | std::ios::trunc);
+	if (!variantOutput)
+		throw std::runtime_error ("Cannot create variant GLB fixture");
+	variantOutput.write (variantGlb.data (), static_cast<std::streamsize> (variantGlb.size ()));
+	if (!variantOutput)
+		throw std::runtime_error ("Cannot write variant GLB fixture");
 	return 0;
 }

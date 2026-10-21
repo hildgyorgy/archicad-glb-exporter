@@ -37,13 +37,14 @@ struct PackedGeometry {
 	std::vector<Vec3> positions;
 	std::vector<Vec3> normals;
 	std::vector<Vec2> textureCoordinates;
+	std::vector<Vec2> alternateTextureCoordinates;
 	std::vector<std::uint32_t> indices;
 	Vec3 minimum {std::numeric_limits<float>::max (), std::numeric_limits<float>::max (),
 	              std::numeric_limits<float>::max ()};
 	Vec3 maximum {-minimum.x, -minimum.y, -minimum.z};
 };
 
-using VertexKey = std::array<std::uint32_t, 8>;
+using VertexKey = std::array<std::uint32_t, 10>;
 
 struct VertexKeyHash {
 	std::size_t operator() (const VertexKey& key) const
@@ -55,14 +56,17 @@ struct VertexKeyHash {
 	}
 };
 
-VertexKey MakeVertexKey (const Vec3& position, const Vec3& normal, const Vec2& textureCoordinate)
+VertexKey MakeVertexKey (const Vec3& position, const Vec3& normal, const Vec2& textureCoordinate,
+                         const Vec2& alternateTextureCoordinate)
 {
 	// Compare the eight stored float components, not struct bytes (which may contain padding).
 	// Bitwise equality avoids welding across even the smallest normal or UV difference.
 	return {std::bit_cast<std::uint32_t> (position.x), std::bit_cast<std::uint32_t> (position.y),
 	        std::bit_cast<std::uint32_t> (position.z), std::bit_cast<std::uint32_t> (normal.x),
 	        std::bit_cast<std::uint32_t> (normal.y), std::bit_cast<std::uint32_t> (normal.z),
-	        std::bit_cast<std::uint32_t> (textureCoordinate.u), std::bit_cast<std::uint32_t> (textureCoordinate.v)};
+	        std::bit_cast<std::uint32_t> (textureCoordinate.u), std::bit_cast<std::uint32_t> (textureCoordinate.v),
+	        std::bit_cast<std::uint32_t> (alternateTextureCoordinate.u),
+	        std::bit_cast<std::uint32_t> (alternateTextureCoordinate.v)};
 }
 
 struct BufferView {
@@ -82,14 +86,17 @@ struct Accessor {
 
 struct PrimitiveReferences {
 	std::size_t materialIndex;
+	std::optional<std::size_t> alternateMaterialIndex;
 	std::size_t positionAccessor;
 	std::size_t normalAccessor;
 	std::size_t textureCoordinateAccessor;
+	std::optional<std::size_t> alternateTextureCoordinateAccessor;
 	std::size_t indexAccessor;
 };
 
 struct PackedPrimitive {
 	std::size_t materialIndex;
+	std::optional<std::size_t> alternateMaterialIndex;
 	PackedGeometry geometry;
 };
 
@@ -326,6 +333,8 @@ PackedGeometry PackGeometry (const Model& model, const Primitive& primitive)
 {
 	if (primitive.materialIndex >= model.materials.size ())
 		throw std::out_of_range ("Primitive references an invalid material");
+	if (primitive.alternateMaterialIndex.has_value () && *primitive.alternateMaterialIndex >= model.materials.size ())
+		throw std::out_of_range ("Primitive references an invalid alternate material");
 	if (primitive.indices.empty () || primitive.indices.size () % 3 != 0)
 		throw std::invalid_argument ("Every primitive must contain complete triangles");
 
@@ -337,11 +346,15 @@ PackedGeometry PackGeometry (const Model& model, const Primitive& primitive)
 		const Vec3& position = model.positions[sourceIndex];
 		const Vec3& normal = model.normals[sourceIndex];
 		const Vec2& textureCoordinate = model.textureCoordinates[sourceIndex];
+		const Vec2 alternateTextureCoordinate = model.alternateTextureCoordinates.empty ()
+		                                            ? Vec2 {0.0f, 0.0f}
+		                                            : model.alternateTextureCoordinates[sourceIndex];
 		if (!std::isfinite (position.x) || !std::isfinite (position.y) || !std::isfinite (position.z) ||
 		    !std::isfinite (normal.x) || !std::isfinite (normal.y) || !std::isfinite (normal.z) ||
-		    !std::isfinite (textureCoordinate.u) || !std::isfinite (textureCoordinate.v))
+		    !std::isfinite (textureCoordinate.u) || !std::isfinite (textureCoordinate.v) ||
+		    !std::isfinite (alternateTextureCoordinate.u) || !std::isfinite (alternateTextureCoordinate.v))
 			throw std::invalid_argument ("Primitive contains a non-finite vertex attribute");
-		const VertexKey key = MakeVertexKey (position, normal, textureCoordinate);
+		const VertexKey key = MakeVertexKey (position, normal, textureCoordinate, alternateTextureCoordinate);
 		auto remapped = remappedIndices.find (key);
 		if (remapped == remappedIndices.end ()) {
 			const std::uint32_t targetIndex = CheckedU32 (packed.positions.size (), "Vertex count");
@@ -349,6 +362,8 @@ PackedGeometry PackGeometry (const Model& model, const Primitive& primitive)
 			packed.positions.push_back (position);
 			packed.normals.push_back (normal);
 			packed.textureCoordinates.push_back (textureCoordinate);
+			if (!model.alternateTextureCoordinates.empty ())
+				packed.alternateTextureCoordinates.push_back (alternateTextureCoordinate);
 			const Vec3& point = packed.positions.back ();
 			packed.minimum.x = std::min (packed.minimum.x, point.x);
 			packed.minimum.y = std::min (packed.minimum.y, point.y);
@@ -368,6 +383,9 @@ std::vector<PackedGroup> PackGroups (const Model& model)
 {
 	if (model.positions.size () != model.normals.size () || model.positions.size () != model.textureCoordinates.size ())
 		throw std::invalid_argument ("Position, normal and texture-coordinate counts differ");
+	if (!model.alternateTextureCoordinates.empty () &&
+	    model.alternateTextureCoordinates.size () != model.positions.size ())
+		throw std::invalid_argument ("Alternate texture-coordinate count differs");
 	if (model.groups.empty ())
 		throw std::invalid_argument ("The GLB model has no groups");
 
@@ -380,7 +398,8 @@ std::vector<PackedGroup> PackGroups (const Model& model)
 		packedGroup.name = group.name;
 		packedGroup.primitives.reserve (group.primitives.size ());
 		for (const Primitive& primitive : group.primitives)
-			packedGroup.primitives.push_back ({primitive.materialIndex, PackGeometry (model, primitive)});
+			packedGroup.primitives.push_back ({primitive.materialIndex, primitive.alternateMaterialIndex,
+			                                   PackGeometry (model, primitive)});
 		result.push_back (std::move (packedGroup));
 	}
 	return result;
@@ -427,6 +446,13 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			const std::size_t normalView = layout.AddTypedBufferView (packed.normals, Constant::ArrayBuffer);
 			const std::size_t textureCoordinateView =
 			    layout.AddTypedBufferView (packed.textureCoordinates, Constant::ArrayBuffer);
+			std::optional<std::size_t> alternateTextureCoordinateAccessor;
+			if (!packed.alternateTextureCoordinates.empty ()) {
+				const std::size_t view = layout.AddTypedBufferView (packed.alternateTextureCoordinates,
+				                                                     Constant::ArrayBuffer);
+				alternateTextureCoordinateAccessor = layout.AddAccessor (
+				    view, Constant::FloatComponent, packed.alternateTextureCoordinates.size (), "VEC2");
+			}
 			std::size_t indexView;
 			int indexComponentType;
 			if (packed.positions.size () <= static_cast<std::size_t> (std::numeric_limits<std::uint16_t>::max ()) + 1) {
@@ -441,12 +467,13 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 				indexComponentType = Constant::UnsignedIntComponent;
 			}
 			primitiveReferences.back ().push_back (
-			    {primitive.materialIndex,
+			    {primitive.materialIndex, primitive.alternateMaterialIndex,
 			     layout.AddAccessor (positionView, Constant::FloatComponent, packed.positions.size (), "VEC3",
 			                         packed.minimum, packed.maximum),
 			     layout.AddAccessor (normalView, Constant::FloatComponent, packed.normals.size (), "VEC3"),
 			     layout.AddAccessor (textureCoordinateView, Constant::FloatComponent, packed.textureCoordinates.size (),
 			                         "VEC2"),
+			     alternateTextureCoordinateAccessor,
 			     layout.AddAccessor (indexView, indexComponentType, packed.indices.size (), "SCALAR")});
 		}
 	}
@@ -520,8 +547,20 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 		json << "}}";
 	}
 	json << "},";
-	if (usesTransmission)
-		json << "\"extensionsUsed\":[\"KHR_materials_transmission\",\"KHR_materials_ior\"],";
+	if (usesTransmission || !model.alternateMaterialVariantName.empty ()) {
+		json << "\"extensionsUsed\":[";
+		if (usesTransmission)
+			json << "\"KHR_materials_transmission\",\"KHR_materials_ior\"";
+		if (!model.alternateMaterialVariantName.empty ()) {
+			if (usesTransmission)
+				json << ',';
+			json << "\"KHR_materials_variants\"";
+		}
+		json << "],";
+	}
+	if (!model.alternateMaterialVariantName.empty ())
+		json << "\"extensions\":{\"KHR_materials_variants\":{\"variants\":[{\"name\":\""
+		     << EscapeJsonString (model.alternateMaterialVariantName) << "\"}]}},";
 	json << "\"scene\":0,\"scenes\":[{\"nodes\":[";
 	for (std::size_t i = 0; i < model.groups.size (); ++i) {
 		if (i > 0)
@@ -672,8 +711,14 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			const PrimitiveReferences& references = primitiveReferences[i][primitiveIndex];
 			json << "{\"attributes\":{\"POSITION\":" << references.positionAccessor
 			     << ",\"NORMAL\":" << references.normalAccessor
-			     << ",\"TEXCOORD_0\":" << references.textureCoordinateAccessor
-			     << "},\"indices\":" << references.indexAccessor << ",\"material\":" << references.materialIndex << '}';
+			     << ",\"TEXCOORD_0\":" << references.textureCoordinateAccessor;
+			if (references.alternateTextureCoordinateAccessor.has_value ())
+				json << ",\"TEXCOORD_1\":" << *references.alternateTextureCoordinateAccessor;
+			json << "},\"indices\":" << references.indexAccessor << ",\"material\":" << references.materialIndex;
+			if (references.alternateMaterialIndex.has_value ())
+				json << ",\"extensions\":{\"KHR_materials_variants\":{\"mappings\":[{\"material\":"
+				     << *references.alternateMaterialIndex << ",\"variants\":[0]}]}}";
+			json << '}';
 		}
 		json << "]}";
 	}
@@ -683,26 +728,45 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 			json << ',';
 		const Material& material = model.materials[i];
 		const bool hasBaseColorTexture = materialTextureIndices[i] >= 0;
-		const double red = hasBaseColorTexture ? 1.0 : material.red;
-		const double green = hasBaseColorTexture ? 1.0 : material.green;
-		const double blue = hasBaseColorTexture ? 1.0 : material.blue;
+		const double red = hasBaseColorTexture && !material.multiplyBaseColorTexture ? 1.0 : material.red;
+		const double green = hasBaseColorTexture && !material.multiplyBaseColorTexture ? 1.0 : material.green;
+		const double blue = hasBaseColorTexture && !material.multiplyBaseColorTexture ? 1.0 : material.blue;
 		json << "{\"name\":\"" << EscapeJsonString (material.name)
 		     << "\",\"pbrMetallicRoughness\":{\"baseColorFactor\":[" << red << ',' << green << ',' << blue << ','
 		     << material.alpha << "],\"metallicFactor\":" << material.metallic
 		     << ",\"roughnessFactor\":" << material.roughness;
-		if (hasBaseColorTexture)
-			json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i] << '}';
-		if (materialMetallicRoughnessTextureIndices[i] >= 0)
-			json << ",\"metallicRoughnessTexture\":{\"index\":" << materialMetallicRoughnessTextureIndices[i] << '}';
+		if (hasBaseColorTexture) {
+			json << ",\"baseColorTexture\":{\"index\":" << materialTextureIndices[i];
+			if (material.textureCoordinateSet != 0)
+				json << ",\"texCoord\":" << material.textureCoordinateSet;
+			json << '}';
+		}
+		if (materialMetallicRoughnessTextureIndices[i] >= 0) {
+			json << ",\"metallicRoughnessTexture\":{\"index\":" << materialMetallicRoughnessTextureIndices[i];
+			if (material.textureCoordinateSet != 0)
+				json << ",\"texCoord\":" << material.textureCoordinateSet;
+			json << '}';
+		}
 		json << '}';
-		if (materialNormalTextureIndices[i] >= 0)
-			json << ",\"normalTexture\":{\"index\":" << materialNormalTextureIndices[i] << '}';
-		if (materialOcclusionTextureIndices[i] >= 0)
-			json << ",\"occlusionTexture\":{\"index\":" << materialOcclusionTextureIndices[i] << '}';
+		if (materialNormalTextureIndices[i] >= 0) {
+			json << ",\"normalTexture\":{\"index\":" << materialNormalTextureIndices[i];
+			if (material.textureCoordinateSet != 0)
+				json << ",\"texCoord\":" << material.textureCoordinateSet;
+			json << '}';
+		}
+		if (materialOcclusionTextureIndices[i] >= 0) {
+			json << ",\"occlusionTexture\":{\"index\":" << materialOcclusionTextureIndices[i];
+			if (material.textureCoordinateSet != 0)
+				json << ",\"texCoord\":" << material.textureCoordinateSet;
+			json << '}';
+		}
 		if (materialEmissiveTextureIndices[i] >= 0) {
 			const bool hasEmissiveFactor =
 			    material.emissiveRed > 0.0 || material.emissiveGreen > 0.0 || material.emissiveBlue > 0.0;
-			json << ",\"emissiveTexture\":{\"index\":" << materialEmissiveTextureIndices[i] << "},\"emissiveFactor\":["
+			json << ",\"emissiveTexture\":{\"index\":" << materialEmissiveTextureIndices[i];
+			if (material.textureCoordinateSet != 0)
+				json << ",\"texCoord\":" << material.textureCoordinateSet;
+			json << "},\"emissiveFactor\":["
 			     << (hasEmissiveFactor ? material.emissiveRed : 1.0) << ','
 			     << (hasEmissiveFactor ? material.emissiveGreen : 1.0) << ','
 			     << (hasEmissiveFactor ? material.emissiveBlue : 1.0) << ']';

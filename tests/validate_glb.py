@@ -36,6 +36,27 @@ def main() -> None:
         dedup_data = pathlib.Path(str(output) + ".dedup.glb").read_bytes()
         index_width_data = pathlib.Path(str(output) + ".index-width.glb").read_bytes()
         precision_data = pathlib.Path(str(output) + ".precision.glb").read_bytes()
+        variant_data = pathlib.Path(str(output) + ".variant.glb").read_bytes()
+
+    variant_json_length = struct.unpack_from("<I", variant_data, 12)[0]
+    variant_document = json.loads(variant_data[20:20 + variant_json_length].decode("utf-8").rstrip(" \0"))
+    variant_binary_start = 20 + variant_json_length + 8
+    variant_binary = variant_data[variant_binary_start:]
+    require("KHR_materials_variants" in variant_document["extensionsUsed"],
+            "material variant extension was not declared")
+    require(variant_document["extensions"]["KHR_materials_variants"]["variants"] ==
+            [{"name": "Maxon / Redshift PBR"}], "Maxon variant name changed")
+    variant_primitive = variant_document["meshes"][0]["primitives"][0]
+    require(variant_primitive["material"] == 0, "basic material is not the default")
+    require(variant_primitive["extensions"]["KHR_materials_variants"]["mappings"] ==
+            [{"material": 1, "variants": [0]}], "Maxon material mapping changed")
+    require(read_accessor(variant_document, variant_binary, variant_primitive["attributes"]["TEXCOORD_1"]) ==
+            [(0.0, 0.0), (2.0, 0.0), (0.0, 2.0)], "alternate UV coordinates changed")
+    variant_material = variant_document["materials"][1]
+    require(variant_material["pbrMetallicRoughness"]["baseColorTexture"]["texCoord"] == 1,
+            "Maxon texture does not use the alternate UV set")
+    require(variant_material["pbrMetallicRoughness"]["baseColorFactor"][0] == 0.5,
+            "Maxon image lost its colour multiplier")
 
     require(len(data) >= 28, "GLB is shorter than its header and two chunk headers")
     magic, version, declared_length = struct.unpack_from("<III", data)
