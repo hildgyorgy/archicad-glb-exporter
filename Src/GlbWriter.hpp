@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace DropView::Glb {
@@ -58,8 +57,6 @@ struct Material {
 	double emissiveBlue = 0.0;
 	TextureParameters texture;
 	bool alphaMask = false;
-	bool multiplyBaseColorTexture = false;
-	int textureCoordinateSet = 0;
 	std::vector<char> imageData;
 	std::string imageMimeType;
 	TextureImage normalTexture;
@@ -71,11 +68,6 @@ struct Material {
 struct Primitive {
 	std::size_t materialIndex = 0;
 	std::vector<std::uint32_t> indices;
-	std::optional<std::size_t> alternateMaterialIndex;
-	Primitive () = default;
-	Primitive (std::size_t material, std::vector<std::uint32_t> triangles,
-	           std::optional<std::size_t> alternate = std::nullopt)
-	    : materialIndex (material), indices (std::move (triangles)), alternateMaterialIndex (alternate) {}
 };
 
 struct Group {
@@ -176,11 +168,8 @@ struct Model {
 	std::vector<Vec3> positions;
 	std::vector<Vec3> normals;
 	std::vector<Vec2> textureCoordinates;
-	std::vector<Vec2> sourceTextureCoordinates;
-	std::vector<Vec2> alternateTextureCoordinates;
 	std::vector<Material> materials;
 	std::vector<Group> groups;
-	std::string alternateMaterialVariantName;
 	std::string designCredits;
 	std::optional<InitialView> initialView;
 	std::optional<SunSettings> sun;

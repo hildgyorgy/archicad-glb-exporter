@@ -19,10 +19,6 @@
 #pragma clang diagnostic ignored "-Wunknown-pragmas"
 #endif
 #include "Model.hpp"
-#include "ModelMaterial.hpp"
-#include "AttributeIndex.hpp"
-#include "Parameter.hpp"
-#include "ParameterList.hpp"
 #include "ModelElement.hpp"
 #include "ModelMeshBody.hpp"
 #include "Polygon.hpp"
@@ -36,7 +32,6 @@
 #include "TextureCoordinates.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -46,7 +41,6 @@
 #include <memory>
 #include <optional>
 #include <set>
-#include <string>
 #include <vector>
 
 #ifndef DROPVIEW_VERSION
@@ -69,7 +63,6 @@ using DropView::Glb::WindowLight;
 using GlbGeometry::CornerNormals;
 
 enum class GroupingMode { Surface, Layer, ElementType };
-enum class MaterialMode { Basic, Maxon, Both };
 
 struct ClearGlassCandidate {
 	Int32 sourceIndex = 0;
@@ -104,19 +97,17 @@ void SaveDesignCreditsPreference (const std::string& designCredits)
 class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver, public DG::ListBoxObserver {
 public:
 	explicit ExportOptionsDialog (std::vector<ClearGlassCandidate> candidates, const std::string& savedDesignCredits)
-	    : DG::ModalDialog (DG::NativePoint (), 760, 430, GS::Guid ()),
+	    : DG::ModalDialog (DG::NativePoint (), 760, 384, GS::Guid ()),
 	      groupingPrompt (GetReference (), DG::Rect (16, 16, 744, 34)),
 	      groupingMode (GetReference (), DG::Rect (16, 38, 744, 60), 8, 4),
-	      materialPrompt (GetReference (), DG::Rect (16, 76, 744, 94)),
-	      materialMode (GetReference (), DG::Rect (16, 98, 744, 120), 8, 4),
-	      creditsPrompt (GetReference (), DG::Rect (16, 130, 744, 148)),
-	      creditsEdit (GetReference (), DG::Rect (16, 150, 744, 174), 512),
-	      glassHeading (GetReference (), DG::Rect (16, 192, 744, 212)),
-	      glassDescription (GetReference (), DG::Rect (16, 214, 744, 252)),
-	      glassList (GetReference (), DG::Rect (16, 256, 744, 378), DG::ListBox::VScroll, DG::ListBox::PartialItems,
+	      creditsPrompt (GetReference (), DG::Rect (16, 76, 744, 94)),
+	      creditsEdit (GetReference (), DG::Rect (16, 96, 744, 120), 512),
+	      glassHeading (GetReference (), DG::Rect (16, 138, 744, 158)),
+	      glassDescription (GetReference (), DG::Rect (16, 160, 744, 198)),
+	      glassList (GetReference (), DG::Rect (16, 202, 744, 332), DG::ListBox::VScroll, DG::ListBox::PartialItems,
 	                 DG::ListBox::NoHeader, 0, DG::ListBox::Frame),
-	      cancelButton (GetReference (), DG::Rect (592, 392, 664, 416)),
-	      okButton (GetReference (), DG::Rect (672, 392, 744, 416)), clearGlassCandidates (std::move (candidates))
+	      cancelButton (GetReference (), DG::Rect (592, 344, 664, 368)),
+	      okButton (GetReference (), DG::Rect (672, 344, 744, 368)), clearGlassCandidates (std::move (candidates))
 	{
 		SetTitle ("GLB export settings");
 		groupingPrompt.SetText ("Group exported model by:");
@@ -125,12 +116,6 @@ public:
 			groupingMode.SetItemText (groupingMode.GetItemCount (), item);
 		}
 		groupingMode.SelectItem (1);
-		materialPrompt.SetText ("Materials to include in the GLB:");
-		for (const char* item : {"Basic engine", "Maxon / Redshift PBR", "Both (Basic + Maxon variant)"}) {
-			materialMode.AppendItem ();
-			materialMode.SetItemText (materialMode.GetItemCount (), item);
-		}
-		materialMode.SelectItem (1);
 		creditsPrompt.SetText ("Design credits (optional; stored in the GLB):");
 		creditsEdit.SetText (GS::UniString (savedDesignCredits.c_str (), CC_UTF8));
 		glassHeading.SetText ("Clear glass surfaces");
@@ -186,15 +171,6 @@ public:
 		}
 	}
 
-	MaterialMode GetMaterialMode () const
-	{
-		switch (materialMode.GetSelectedItem ()) {
-			case 2: return MaterialMode::Maxon;
-			case 3: return MaterialMode::Both;
-			default: return MaterialMode::Basic;
-		}
-	}
-
 	std::set<Int32> GetClearGlassSurfaceIndices () const
 	{
 		std::set<Int32> indices;
@@ -232,8 +208,6 @@ private:
 
 	DG::LeftText groupingPrompt;
 	DG::PopUp groupingMode;
-	DG::LeftText materialPrompt;
-	DG::PopUp materialMode;
 	DG::LeftText creditsPrompt;
 	DG::TextEdit creditsEdit;
 	DG::LeftText glassHeading;
@@ -451,187 +425,6 @@ void LoadTextureImage (const IO::Location* location, Material& material)
 	material.alphaMask = DropView::MaterialConversion::UsesAlphaCutout (pngHasAlpha, material.texture.useAlpha,
 	                                                                    material.texture.transparencyPattern,
 	                                                                    material.sourceTransparencyPercent);
-}
-
-struct MaxonParameters {
-	std::map<std::string, double> numbers;
-	std::map<std::string, std::string> strings;
-	std::map<std::string, std::array<double, 3>> colors;
-
-	static std::string Key (const GS::UniString& name)
-	{
-		std::string key = name.ToCStr (CC_UTF8).Get ();
-		std::transform (key.begin (), key.end (), key.begin (),
-		                [] (unsigned char character) { return static_cast<char> (std::toupper (character)); });
-		return key;
-	}
-
-	void Read (const ModelerAPI::Material& source)
-	{
-		ModelerAPI::ParameterList list;
-		source.GetExtraParameters (&list);
-		for (Int32 index = 1; index <= list.GetParameterCount (); ++index) {
-			ModelerAPI::Parameter parameter;
-			if (!list.GetParameter (index, &parameter))
-				continue;
-			const std::string key = Key (parameter.GetName ());
-			if (parameter.GetType () == ModelerAPI::Parameter::NumericType)
-				numbers[key] = static_cast<double> (parameter);
-			else if (parameter.GetType () == ModelerAPI::Parameter::StringType) {
-				GS::UniString value;
-				parameter.GetStringValue (value);
-				strings[key] = value.ToCStr (CC_UTF8).Get ();
-			} else if (parameter.GetType () == ModelerAPI::Parameter::NumericArrayType) {
-				Int32 first = 0;
-				Int32 second = 0;
-				parameter.GetArrayDimensions (&first, &second);
-				if (first == 3 && second == 0)
-					colors[key] = {static_cast<double> (parameter[1]), static_cast<double> (parameter[2]),
-					               static_cast<double> (parameter[3])};
-			}
-		}
-	}
-
-	double Number (const std::string& key, double fallback) const
-	{
-		const auto found = numbers.find (key);
-		return found == numbers.end () ? fallback : found->second;
-	}
-
-	std::string String (const std::string& key) const
-	{
-		const auto found = strings.find (key);
-		return found == strings.end () ? std::string {} : found->second;
-	}
-
-	std::array<double, 3> Color (const std::string& key, std::array<double, 3> fallback) const
-	{
-		const auto found = colors.find (key);
-		return found == colors.end () ? fallback : found->second;
-	}
-
-	std::string ImageName (const std::string& shaderId) const
-	{
-		return shaderId.empty () ? std::string {} : String ("C4D_SHIMAGE_FILE_" + shaderId);
-	}
-};
-
-bool LoadNamedMaxonImage (const std::string& imageName, Material& target)
-{
-	if (imageName.empty ())
-		return false;
-	API_LibPart part {};
-	part.typeID = APILib_PictID;
-	const GS::UniString name (imageName.c_str (), CC_UTF8);
-	if (name.GetLength () >= API_UniLongNameLen)
-		return false;
-	GS::ucscpy (part.docu_UName, name.ToUStr ());
-	const GSErrCode error = ACAPI_LibraryPart_Search (&part, false);
-	std::unique_ptr<IO::Location> location (part.location);
-	if (error != NoError || location == nullptr)
-		return false;
-	LoadTextureImage (location.get (), target);
-	return !target.imageData.empty ();
-}
-
-std::string LinkedParameterId (const MaxonParameters& parameters, const std::string& owner,
-                               const std::string& relation)
-{
-	return owner.empty () ? std::string {} : parameters.String ("C4D_" + relation + "_" + owner);
-}
-
-Material ReadMaxonMaterial (const Material& basic, const ModelerAPI::Model& sightModel)
-{
-	Material result = basic;
-	result.name += " [Maxon]";
-	result.imageData.clear ();
-	result.imageMimeType.clear ();
-	result.normalTexture = {};
-	result.metallicRoughnessTexture = {};
-	result.occlusionTexture = {};
-	result.emissiveTexture = {};
-	result.alphaMask = false;
-	result.alpha = 1.0;
-	result.transmission = 0.0;
-	result.clearGlassOverride = false;
-	result.metallic = 0.0;
-	result.roughness = 1.0;
-	result.multiplyBaseColorTexture = true;
-	ModelerAPI::Material source;
-	sightModel.GetMaterial (ModelerAPI::AttributeIndex (ModelerAPI::AttributeIndex::MaterialIndex,
-	                                                   basic.sourceIndex), &source);
-	MaxonParameters parameters;
-	parameters.Read (source);
-	if (parameters.numbers.empty () && parameters.strings.empty ())
-		return basic;
-
-	if (parameters.Number ("C4D_CHCOL_STATE", 1.0) != 0.0) {
-		const auto color = parameters.Color ("C4D_CHCOL_COLOR", {basic.red, basic.green, basic.blue});
-		const double brightness = std::clamp (parameters.Number ("C4D_CHCOL_BRIGHTNESS", 1.0), 0.0, 1.0);
-		result.red = std::clamp (color[0] * brightness, 0.0, 1.0);
-		result.green = std::clamp (color[1] * brightness, 0.0, 1.0);
-		result.blue = std::clamp (color[2] * brightness, 0.0, 1.0);
-		LoadNamedMaxonImage (parameters.ImageName (parameters.String ("C4D_CHCOL_TEXTURE")), result);
-	}
-	result.texture.xSize = parameters.Number ("C4D_CHSIZE_HORSIZE", basic.texture.xSize);
-	result.texture.ySize = parameters.Number ("C4D_CHSIZE_VERSIZE", basic.texture.ySize);
-
-	if (parameters.Number ("C4D_CHNOR_STATE", 0.0) != 0.0) {
-		Material image;
-		if (LoadNamedMaxonImage (parameters.ImageName (parameters.String ("C4D_CHNOR_TEXTURE")), image))
-			result.normalTexture = {std::move (image.imageData), std::move (image.imageMimeType)};
-	}
-	const std::string layerList = parameters.String ("C4D_CHRFL_RLS");
-	const std::string layer = LinkedParameterId (parameters, layerList, "RLS_REFLAYER");
-	const bool reflectanceEnabled = parameters.Number ("C4D_CHRFL_STATE", 1.0) != 0.0;
-	if (reflectanceEnabled && !layer.empty ()) {
-		const std::string roughnessSettings = LinkedParameterId (parameters, layer, "REFLAYER_RLWR");
-		if (!roughnessSettings.empty ()) {
-			result.roughness = std::clamp (
-			    parameters.Number ("C4D_RLWRS_WIDTHROUGH_" + roughnessSettings, 1.0), 0.0, 1.0);
-			Material image;
-			const std::string shader = parameters.String ("C4D_RLWRS_WRTEXTURE_" + roughnessSettings);
-			if (LoadNamedMaxonImage (parameters.ImageName (shader), image))
-				result.metallicRoughnessTexture = {std::move (image.imageData), std::move (image.imageMimeType)};
-		}
-		const std::string fresnel = LinkedParameterId (parameters, layer, "REFLAYER_RLFR");
-		if (!fresnel.empty ()) {
-			const std::string type = parameters.String ("C4D_RLFRESNEL_FRESNEL_" + fresnel);
-			result.metallic = type == "Conductor" ? 1.0 : 0.0;
-			result.ior = parameters.Number ("C4D_RLFRESNEL_IOR_" + fresnel, 1.5);
-		}
-		// A standalone roughness image is grayscale. glTF uses its green channel
-		// for roughness, but its blue channel for metallicity. A conductor would
-		// therefore acquire a false metallic mask; keep the scalar roughness there.
-		if (result.metallic > 0.0)
-			result.metallicRoughnessTexture = {};
-	}
-	if (parameters.Number ("C4D_CHLUM_STATE", 0.0) != 0.0) {
-		const auto emission = parameters.Color ("C4D_CHLUM_COLOR", {1.0, 1.0, 1.0});
-		const double strength = parameters.Number ("C4D_CHLUM_BRIGHTNESS", 1.0);
-		result.emissiveRed = std::clamp (emission[0] * strength, 0.0, 1.0);
-		result.emissiveGreen = std::clamp (emission[1] * strength, 0.0, 1.0);
-		result.emissiveBlue = std::clamp (emission[2] * strength, 0.0, 1.0);
-		Material image;
-		if (LoadNamedMaxonImage (parameters.ImageName (parameters.String ("C4D_CHLUM_TEXTURE")), image))
-			result.emissiveTexture = {std::move (image.imageData), std::move (image.imageMimeType)};
-	}
-	if (parameters.Number ("C4D_CHALP_STATE", 0.0) != 0.0) {
-		const auto opacity = parameters.Color ("C4D_CHALP_COLOR", {1.0, 1.0, 1.0});
-		result.alpha = std::clamp ((opacity[0] + opacity[1] + opacity[2]) / 3.0, 0.0, 1.0);
-	}
-	if (parameters.Number ("C4D_CHTRA_STATE", 0.0) != 0.0) {
-		const auto tint = parameters.Color ("C4D_CHTRA_COLOR", {result.red, result.green, result.blue});
-		result.red = tint[0];
-		result.green = tint[1];
-		result.blue = tint[2];
-		result.alpha = 1.0;
-		result.transmission = 1.0;
-		result.ior = parameters.Number ("C4D_CHTRA_REFRACTION", 1.5);
-	}
-	const bool hasReflectance = parameters.numbers.contains ("C4D_CHRFL_STATE") || !layerList.empty ();
-	DropView::MaterialConversion::ApplyMissingMaxonGloss (basic, reflectanceEnabled && hasReflectance, result);
-	return result;
 }
 
 Vec3 ConvertPosition (const API_Tranmat& transform, const API_VertType& vertex)
@@ -1163,7 +956,6 @@ struct CollectionCheckpoint {
 		model.positions.resize (positionCount);
 		model.normals.resize (normalCount);
 		model.textureCoordinates.resize (textureCoordinateCount);
-		model.sourceTextureCoordinates.resize (textureCoordinateCount);
 		while (model.materials.size () > materialCount) {
 			materialIndices.erase (model.materials.back ().sourceIndex);
 			model.materials.pop_back ();
@@ -1400,7 +1192,7 @@ Primitive& GetOrCreatePrimitive (DropView::Glb::Group& group, std::size_t materi
 		    return candidate.materialIndex == materialIndex;
 	    });
 	if (primitive == group.primitives.end ()) {
-		group.primitives.push_back ({materialIndex, {}, std::nullopt});
+		group.primitives.push_back ({materialIndex, {}});
 		return group.primitives.back ();
 	}
 	return *primitive;
@@ -1506,14 +1298,11 @@ void CollectPolygon (const API_PgonType& polygon, Int32 polygonIndex, Int32 body
 			API_UVCoord uv {};
 			const bool hasModelerUv = GetModelerTextureCoordinate (modelerBody, modelerPolygon, vertexIndex, uv);
 			if (hasModelerUv || (elementIndex >= 0 && localBodyIndex >= 0 &&
-			                     ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError)) {
-				model.sourceTextureCoordinates.push_back ({static_cast<float> (uv.u), static_cast<float> (uv.v)});
+			                     ACAPI_ModelAccess_GetTextureCoord (&parameters, &uv) == NoError))
 				model.textureCoordinates.push_back (
 				    ApplyArchicadTextureTransform (uv, model.materials[materialIndex].texture));
-			} else {
-				model.sourceTextureCoordinates.push_back ({0.0f, 0.0f});
+			else
 				model.textureCoordinates.push_back ({0.0f, 0.0f});
-			}
 		}
 	}
 	for (std::uint32_t index : triangles)
@@ -1664,49 +1453,6 @@ bool CollectMesh (Model& model, GroupingMode groupingMode, const std::set<Int32>
 	return !model.positions.empty () && !model.materials.empty () && !model.groups.empty ();
 }
 
-void ApplyMaterialMode (Model& model, MaterialMode mode)
-{
-	if (mode == MaterialMode::Basic)
-		return;
-	ModelerAPI::Model sightModel;
-	if (ACAPI_Sight_GetSelectedSightModel (sightModel) != NoError)
-		throw std::runtime_error ("Cannot read Maxon material settings from the active 3D model");
-	const std::size_t basicMaterialCount = model.materials.size ();
-	for (std::size_t index = 0; index < basicMaterialCount; ++index) {
-		Material maxon = ReadMaxonMaterial (model.materials[index], sightModel);
-		if (mode == MaterialMode::Maxon)
-			model.materials[index] = std::move (maxon);
-		else {
-			maxon.textureCoordinateSet = 1;
-			model.materials.push_back (std::move (maxon));
-		}
-	}
-	if (mode == MaterialMode::Both) {
-		model.alternateMaterialVariantName = "Maxon / Redshift PBR";
-		model.alternateTextureCoordinates = model.textureCoordinates;
-		for (auto& group : model.groups)
-			for (auto& primitive : group.primitives) {
-				primitive.alternateMaterialIndex = basicMaterialCount + primitive.materialIndex;
-				const Material& maxon = model.materials[*primitive.alternateMaterialIndex];
-				for (const std::uint32_t vertexIndex : primitive.indices) {
-					const Vec2& raw = model.sourceTextureCoordinates[vertexIndex];
-					const API_UVCoord uv {raw.u, raw.v};
-					model.alternateTextureCoordinates[vertexIndex] = ApplyArchicadTextureTransform (uv, maxon.texture);
-				}
-			}
-	} else {
-		for (const auto& group : model.groups)
-			for (const auto& primitive : group.primitives) {
-				const Material& maxon = model.materials[primitive.materialIndex];
-				for (const std::uint32_t vertexIndex : primitive.indices) {
-					const Vec2& raw = model.sourceTextureCoordinates[vertexIndex];
-					const API_UVCoord uv {raw.u, raw.v};
-					model.textureCoordinates[vertexIndex] = ApplyArchicadTextureTransform (uv, maxon.texture);
-				}
-			}
-	}
-}
-
 struct WriteGlbResult {
 	bool succeeded = false;
 	bool omittedInitialView = false;
@@ -1796,7 +1542,6 @@ void ExportActive3DWindowToGlb ()
 	if (!optionsDialog.Invoke ())
 		return;
 	const GroupingMode groupingMode = optionsDialog.GetGroupingMode ();
-	const MaterialMode materialMode = optionsDialog.GetMaterialMode ();
 	const std::set<Int32> clearGlassSurfaceIndices = optionsDialog.GetClearGlassSurfaceIndices ();
 	const std::string designCredits = optionsDialog.GetDesignCredits ();
 	SaveDesignCreditsPreference (designCredits);
@@ -1827,7 +1572,6 @@ void ExportActive3DWindowToGlb ()
 			ACAPI_WriteReport ("The active 3D window does not contain exportable geometry.", true);
 			return;
 		}
-		ApplyMaterialMode (model, materialMode);
 		model.windowLights = CollectWindowLights ();
 		if (activeViewSettings.has_value ()) {
 			try {

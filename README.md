@@ -45,32 +45,14 @@ because the 3D model API does not provide reliable closed-volume and pane-
 thickness information. Alpha cutout textures, such as leaves, remain
 `alphaMode: MASK`.
 
-The export dialog can write **Basic engine**, **Maxon / Redshift PBR**, or
-**Both (Basic + Maxon variant)** materials. The Basic choice preserves the
-original export. The Maxon choice reads the active 3D model's Maxon surface
-parameters and embedded library images. It maps the colour channel and image,
-normal image, reflection-layer roughness and image, conductor Fresnel metallic
-flag, IOR, luminance and transparency to glTF PBR properties. Only enabled
-channels are used. Maxon texture sizes use their own UV transform. If a
-surface has no readable Maxon parameters, its Basic material is used.
-For opaque surfaces whose Maxon reflectance resolves to fully rough despite
-strong Archicad specular/shininess values, an experimental gloss fallback
-estimates roughness from that Archicad shininess. This does not reconstruct
-multiple reflectance layers or procedural reflection textures.
-
-**Both** keeps Basic materials as the default appearance and writes Maxon
-materials as a `KHR_materials_variants` choice named `Maxon / Redshift PBR`.
-The two texture coordinate sets are stored separately. A viewer must support
-`KHR_materials_variants` to expose the choice; other viewers display Basic.
-
 The GLB writer supports embedded base-colour (sRGB), normal (linear), packed
 metallic-roughness (roughness in G, metallic in B), occlusion (R) and emissive
 (sRGB) texture channels, with image deduplication and the exported UV/sampler
-settings. A standalone Maxon roughness image is used as a roughness map for
-dielectrics. For conductors the scalar roughness is retained without that map,
-because a grayscale image in glTF's metallic blue channel would incorrectly
-mask the metal. Maxon bump, displacement, procedural shaders and layered
-shaders are not converted to glTF textures. Original surface name, index, material
+settings. Archicad 28–29's `API_MaterialType` currently exposes only one surface
+image through the 3D model API, so the add-on can populate the base-colour
+channel but cannot retrieve separate normal, metallic-roughness, occlusion or
+emissive maps from an Archicad surface. The serializer is ready to retain those
+channels if a later API exposes them. Original surface name, index, material
 type, transparency, specular percentage and shininess are preserved in each
 material's `extras.archicad` object for compatibility and diagnostics. Emission
 colour and attenuation are mapped to glTF's emissive factor; the original
@@ -98,12 +80,11 @@ is multiplied in; alpha remains a linear coverage value.
 3. Choose **Drop & View GLB Exporter > Export active 3D window to GLB…**.
 4. Choose one grouping mode: **Surface / Texture**, **Layer** or **Element type**. The exported GLB contains one
    independently identifiable node and mesh for each group; materials and textures remain attached to their geometry.
-5. Choose **Basic engine**, **Maxon / Redshift PBR** or **Both (Basic + Maxon variant)** under materials.
-6. Optionally enter the design credits to embed in the GLB. The last entered value is remembered for the next export.
-7. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
+5. Optionally enter the design credits to embed in the GLB. The last entered value is remembered for the next export.
+6. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
    properties, while other transparent surfaces retain their original appearance. Adjust the checkboxes when needed.
-8. Choose the destination `.glb` file.
-9. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+7. Choose the destination `.glb` file.
+8. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
 
 Only the selected grouping hierarchy is written to a GLB. Export the same Archicad view again with another mode when a
 different visibility list is required. **Surface / Texture** preserves the original exporter grouping behavior.
