@@ -1,21 +1,16 @@
-## Unreleased
+# Drop & View GLB Exporter v1.2.0
 
-- Added a per-export **Allow material editing in Drop & View** option. It defaults to off every time and writes `asset.extras.dropView.materialWorkbench.policy` as `"disabled"` or `"enabled"` in every GLB, alongside `schemaVersion: 1`. It is a viewer editing policy, not encryption or copy protection; other software can still open the GLB.
+## What's new
 
-## What's changed in v1.1.0
+- Designers can choose **ALLOW MATERIAL EDITING IN DROP & VIEW** for each export. It starts unchecked every time, so a newly exported GLB is view-only in the planned public Material Workbench unless the designer explicitly opts in.
+- Every GLB records the choice in `asset.extras.dropView.materialWorkbench.policy` as `"disabled"` or `"enabled"`, with `schemaVersion: 1`. The policy is present even when no design credits, initial view, sun or window-light metadata is available.
+- The export settings dialog has more room for the new choice, its explanation and the clear-glass surface list. The existing design-credit preference and clear-glass behavior are unchanged.
 
-- Completed the v1.1.0 release with a validation fix: zero-length or cancelling smooth normals now fall back to the polygon normal, and glTF position accessor bounds retain exact float precision. This prevents invalid normals and accessor-bound errors without changing geometry detail, textures, or viewer brightness.
-- Exports exact duplicate vertices only once within each glTF primitive, preserving positions, normals, texture coordinates, materials, and model detail.
-- Uses 16-bit mesh indices where a primitive fits, retaining 32-bit indices for larger primitives. Together, these lossless changes substantially reduce exported GLB size; the reduction depends on the model.
-- Aligns clear-glass selection rows to the left in the export settings dialog, removing the wide gaps around the check markers and giving surface descriptions more room.
-- Includes Archicad 28, 29, and 30 add-ons for macOS and Windows.
-- Retains the experimental Archicad Window Light metadata in `scenes[0].extras.dropView.windowLights` for viewer-side evaluation. It does not create glTF punctual lights or change viewer brightness.
+This is an editing policy for Drop & View, not encryption or copy protection. The GLB remains a standard file that other compatible software can open and edit. Existing viewers may ignore the new optional metadata.
 
-## Requirements
+## Included platforms
 
-- Archicad 28, 29, or 30
-- Apple Silicon Mac with macOS 26 or later, or Windows 11 PC (x64)
+- Archicad 28, 29 and 30 on Apple Silicon Macs with macOS 26 or later.
+- Archicad 28, 29 and 30 on Windows 11 x64.
 
-Install the add-on for your Archicad version from the included macOS DMG or Windows ZIP. See the included README for usage and limitations.
-
-**Updated v1.1.0 packages:** The macOS and Windows downloads were rebuilt after the validation fix. If you downloaded v1.1.0 before this update, download it again; the package checksums have changed. The version number remains 1.1.0.
+Install the add-on matching your Archicad version from the macOS DMG or Windows ZIP. The v1.1.0 lossless geometry optimizations, validation fixes, glass support and window-light metadata remain included.
