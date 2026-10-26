@@ -97,17 +97,19 @@ void SaveDesignCreditsPreference (const std::string& designCredits)
 class ExportOptionsDialog final : public DG::ModalDialog, public DG::ButtonItemObserver, public DG::ListBoxObserver {
 public:
 	explicit ExportOptionsDialog (std::vector<ClearGlassCandidate> candidates, const std::string& savedDesignCredits)
-	    : DG::ModalDialog (DG::NativePoint (), 760, 384, GS::Guid ()),
+	    : DG::ModalDialog (DG::NativePoint (), 760, 440, GS::Guid ()),
 	      groupingPrompt (GetReference (), DG::Rect (16, 16, 744, 34)),
 	      groupingMode (GetReference (), DG::Rect (16, 38, 744, 60), 8, 4),
 	      creditsPrompt (GetReference (), DG::Rect (16, 76, 744, 94)),
 	      creditsEdit (GetReference (), DG::Rect (16, 96, 744, 120), 512),
-	      glassHeading (GetReference (), DG::Rect (16, 138, 744, 158)),
-	      glassDescription (GetReference (), DG::Rect (16, 160, 744, 198)),
-	      glassList (GetReference (), DG::Rect (16, 202, 744, 332), DG::ListBox::VScroll, DG::ListBox::PartialItems,
+	      allowMaterialEditing (GetReference (), DG::Rect (16, 136, 744, 160)),
+	      materialEditingDescription (GetReference (), DG::Rect (36, 162, 744, 186)),
+	      glassHeading (GetReference (), DG::Rect (16, 200, 744, 220)),
+	      glassDescription (GetReference (), DG::Rect (16, 222, 744, 260)),
+	      glassList (GetReference (), DG::Rect (16, 264, 744, 388), DG::ListBox::VScroll, DG::ListBox::PartialItems,
 	                 DG::ListBox::NoHeader, 0, DG::ListBox::Frame),
-	      cancelButton (GetReference (), DG::Rect (592, 344, 664, 368)),
-	      okButton (GetReference (), DG::Rect (672, 344, 744, 368)), clearGlassCandidates (std::move (candidates))
+	      cancelButton (GetReference (), DG::Rect (592, 400, 664, 424)),
+	      okButton (GetReference (), DG::Rect (672, 400, 744, 424)), clearGlassCandidates (std::move (candidates))
 	{
 		SetTitle ("GLB export settings");
 		groupingPrompt.SetText ("Group exported model by:");
@@ -118,6 +120,10 @@ public:
 		groupingMode.SelectItem (1);
 		creditsPrompt.SetText ("Design credits (optional; stored in the GLB):");
 		creditsEdit.SetText (GS::UniString (savedDesignCredits.c_str (), CC_UTF8));
+		allowMaterialEditing.SetText ("ALLOW MATERIAL EDITING IN DROP & VIEW");
+		allowMaterialEditing.SetState (false);
+		materialEditingDescription.SetText (
+		    "When off, Drop & View treats this GLB as view-only and asks for an editable version.");
 		glassHeading.SetText ("Clear glass surfaces");
 		glassDescription.SetText (
 		    "Select the surfaces to export as clear, physically transparent glass. Other transparent surfaces "
@@ -150,6 +156,11 @@ public:
 	{
 		const GS::UniString value = creditsEdit.GetText ();
 		return value.ToCStr (CC_UTF8).Get ();
+	}
+
+	bool AllowsMaterialEditing () const
+	{
+		return allowMaterialEditing.IsChecked ();
 	}
 
 	~ExportOptionsDialog ()
@@ -210,6 +221,8 @@ private:
 	DG::PopUp groupingMode;
 	DG::LeftText creditsPrompt;
 	DG::TextEdit creditsEdit;
+	DG::CheckBox allowMaterialEditing;
+	DG::LeftText materialEditingDescription;
 	DG::LeftText glassHeading;
 	DG::LeftText glassDescription;
 	DG::SingleSelListBox glassList;
@@ -1544,6 +1557,7 @@ void ExportActive3DWindowToGlb ()
 	const GroupingMode groupingMode = optionsDialog.GetGroupingMode ();
 	const std::set<Int32> clearGlassSurfaceIndices = optionsDialog.GetClearGlassSurfaceIndices ();
 	const std::string designCredits = optionsDialog.GetDesignCredits ();
+	const bool allowMaterialEditing = optionsDialog.AllowsMaterialEditing ();
 	SaveDesignCreditsPreference (designCredits);
 
 	// Ask for the destination before potentially expensive stair/railing mesh processing.
@@ -1558,6 +1572,7 @@ void ExportActive3DWindowToGlb ()
 
 	Model model;
 	model.designCredits = designCredits;
+	model.allowMaterialEditing = allowMaterialEditing;
 	ExportStatistics statistics;
 	try {
 		Scoped3DWindowSight sight;

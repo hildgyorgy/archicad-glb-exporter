@@ -277,6 +277,18 @@ int main (int argumentCount, char** arguments)
 	if (!orthographicOutput)
 		throw std::runtime_error ("Cannot write orthographic GLB fixture");
 
+	// An editable file also carries the policy when every other Drop & View metadata field is absent.
+	model.allowMaterialEditing = true;
+	model.initialView.reset ();
+	model.sun.reset ();
+	const std::vector<char> enabledGlb = DropView::Glb::BuildBinary (model, "Material workbench enabled test");
+	std::ofstream enabledOutput (std::string (arguments[1]) + ".enabled.glb", std::ios::binary | std::ios::trunc);
+	if (!enabledOutput)
+		throw std::runtime_error ("Cannot create enabled GLB fixture");
+	enabledOutput.write (enabledGlb.data (), static_cast<std::streamsize> (enabledGlb.size ()));
+	if (!enabledOutput)
+		throw std::runtime_error ("Cannot write enabled GLB fixture");
+
 	DropView::Glb::Model dedupModel;
 	dedupModel.positions = {{0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},
 	                        {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f},

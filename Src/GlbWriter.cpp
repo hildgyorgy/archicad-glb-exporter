@@ -512,13 +512,11 @@ std::vector<char> BuildBinary (const Model& model, const std::string& generator)
 	std::ostringstream json;
 	json << std::fixed << std::setprecision (6) << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
 	     << EscapeJsonString (generator) << '"';
-	if (model.initialView.has_value () || model.sun.has_value () || !model.windowLights.empty () ||
-	    !model.designCredits.empty ()) {
-		json << ",\"extras\":{\"dropView\":{\"schemaVersion\":1";
-		if (!model.designCredits.empty ())
-			json << ",\"designCredits\":\"" << EscapeJsonString (model.designCredits) << '"';
-		json << "}}";
-	}
+	json << ",\"extras\":{\"dropView\":{\"schemaVersion\":1,\"materialWorkbench\":{\"policy\":\""
+	     << (model.allowMaterialEditing ? "enabled" : "disabled") << "\"}";
+	if (!model.designCredits.empty ())
+		json << ",\"designCredits\":\"" << EscapeJsonString (model.designCredits) << '"';
+	json << "}}";
 	json << "},";
 	if (usesTransmission)
 		json << "\"extensionsUsed\":[\"KHR_materials_transmission\",\"KHR_materials_ior\"],";

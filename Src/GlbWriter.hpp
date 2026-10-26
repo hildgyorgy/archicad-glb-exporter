@@ -171,6 +171,8 @@ struct Model {
 	std::vector<Material> materials;
 	std::vector<Group> groups;
 	std::string designCredits;
+	// Explicit opt-in on every export; never inherited from saved preferences.
+	bool allowMaterialEditing = false;
 	std::optional<InitialView> initialView;
 	std::optional<SunSettings> sun;
 	std::vector<WindowLight> windowLights;

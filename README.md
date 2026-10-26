@@ -24,6 +24,7 @@ The add-on uses the active Archicad 3D window as the source of truth. It exports
 - active Graphical Overrides;
 - the active perspective or axonometric 3D viewpoint as a standard glTF camera, plus its Archicad target, view settings and sun position for Drop & View;
 - optional design credits entered at export time and stored as GLB metadata;
+- an export-time choice allowing or disallowing material editing in Drop & View;
 - selectable surface, layer or element-type GLB mesh groups for visibility controls in compatible viewers.
 
 Supported element families currently include walls, slabs, columns, beams, roofs, shells, stairs, railings, objects, lamps, Morphs, meshes/terrain, curtain walls, windows, doors and skylights.
@@ -33,6 +34,23 @@ Lighting, shadows, the Archicad environment and 2D drawing information are not b
 Version 1.0.8 experimentally exports placed Archicad **Window Light / ablakfény** lamps as source metadata in `scenes[0].extras.dropView.windowLights`. The metadata includes the element GUID, library-part ID and name, world-space insertion point (glTF axes), rotation, reflected/on flags, colour, default A/B dimensions, size ratios, and scalar instance GDL parameters. It also records generated GDL `LIGHT` components with their type, mapped direction and position, colour, shadow-casting status and falloff fields; `lightComponentStatus` distinguishes `available`, `none`, `partial` and `unavailable`. Three paired Archicad 29 exports (inward, flipped and rotated 90°) showed that the generated component's position is the rectangular light's world-space centre and its direction follows the inward-facing normal. For one valid upright rectangular component, `rectangularEmitter` therefore supplies `coordinateFrame: "gltfWorld"`, `center`, inward `normal`, `widthAxis`, `heightAxis`, `width` and `height` (metres). The rectangle check uses the observed Archicad 29 Window Light 27 numeric GDL parameter `iC4dDetAreaShape = 2`, not the localized `c4dDetAreaShape` label. It is omitted when the shape ID, size, component count or orientation cannot be established. The original GDL parameters and `lightComponents` data are retained for diagnostics. Recognition currently uses the Hungarian or English library-part name. These records are **not** glTF `KHR_lights_punctual` lights and will not illuminate the model until a viewer interprets them. The rectangle is a geometric approximation of the Cineware emitter; no physical intensity or viewer brightness is inferred from the black generated point-light component.
 
 The optional design-credit text is stored in `asset.extras.dropView.designCredits`. The initial viewpoint is represented by a standard glTF camera and by `scenes[0].extras.dropView.initialView`, which retains the Archicad target and projection details needed by orbit-based viewers. `scenes[0].extras.dropView.sun` stores the active 3D view's sun angles, date/time settings, and ready-to-use directions toward the sun and along its light rays.
+
+Every newly exported GLB includes a file-level Material Workbench policy in `asset.extras.dropView`, even if no other Drop & View metadata is available:
+
+```json
+{
+  "asset": {
+    "extras": {
+      "dropView": {
+        "schemaVersion": 1,
+        "materialWorkbench": {"policy": "disabled"}
+      }
+    }
+  }
+}
+```
+
+When **Allow material editing in Drop & View** is checked, `policy` is `"enabled"` instead. The choice starts unchecked for every export and is not saved as a preference; the design-credit preference is unchanged. This policy expresses the designer's intent for the Drop & View viewer. It is not encryption or copy protection: the GLB remains a standard file that other software can open and edit.
 
 ### Materials and textures
 
@@ -81,10 +99,11 @@ is multiplied in; alpha remains a linear coverage value.
 4. Choose one grouping mode: **Surface / Texture**, **Layer** or **Element type**. The exported GLB contains one
    independently identifiable node and mesh for each group; materials and textures remain attached to their geometry.
 5. Optionally enter the design credits to embed in the GLB. The last entered value is remembered for the next export.
-6. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
+6. Optionally check **Allow material editing in Drop & View** if recipients may use the viewer's Material Workbench. The default is off for each export.
+7. Review the **Clear glass surfaces** list. Likely clear architectural glass is preselected using Archicad material
    properties, while other transparent surfaces retain their original appearance. Adjust the checkboxes when needed.
-7. Choose the destination `.glb` file.
-8. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
+8. Choose the destination `.glb` file.
+9. Open the result in [Drop & View](https://hildgyorgy.github.io/drop-3d-view/).
 
 Only the selected grouping hierarchy is written to a GLB. Export the same Archicad view again with another mode when a
 different visibility list is required. **Surface / Texture** preserves the original exporter grouping behavior.

@@ -33,6 +33,7 @@ def main() -> None:
         subprocess.run([sys.argv[1], str(output)], check=True)
         data = output.read_bytes()
         orthographic_data = pathlib.Path(str(output) + ".ortho.glb").read_bytes()
+        enabled_data = pathlib.Path(str(output) + ".enabled.glb").read_bytes()
         dedup_data = pathlib.Path(str(output) + ".dedup.glb").read_bytes()
         index_width_data = pathlib.Path(str(output) + ".index-width.glb").read_bytes()
         precision_data = pathlib.Path(str(output) + ".precision.glb").read_bytes()
@@ -54,6 +55,7 @@ def main() -> None:
     require(document["asset"]["extras"]["dropView"] == {
         "designCredits": 'Design: György "George" Hild\nLandscape: Example Studio',
         "schemaVersion": 1,
+        "materialWorkbench": {"policy": "disabled"},
     }, "Drop & View asset metadata changed")
     require(document["scenes"][0]["nodes"] == [0, 1, 2, 3],
             "scene does not reference every export group and the initial camera exactly once")
@@ -164,8 +166,27 @@ def main() -> None:
     require(ortho_json_type == 0x4E4F534A, "orthographic fixture does not start with a JSON chunk")
     orthographic_document = json.loads(
         orthographic_data[20:20 + ortho_json_length].decode("utf-8").rstrip(" \0"))
-    require(orthographic_document["asset"]["extras"]["dropView"] == {"schemaVersion": 1},
+    require(orthographic_document["asset"]["extras"]["dropView"] == {
+        "schemaVersion": 1, "materialWorkbench": {"policy": "disabled"}},
             "empty design credits produced incorrect asset metadata")
+
+    enabled_json_length, enabled_json_type = struct.unpack_from("<II", enabled_data, 12)
+    require(enabled_json_type == 0x4E4F534A and enabled_json_length % 4 == 0,
+            "enabled GLB JSON chunk type or alignment is invalid")
+    enabled_document = json.loads(
+        enabled_data[20:20 + enabled_json_length].decode("utf-8").rstrip(" \0"))
+    require(enabled_document["asset"]["extras"]["dropView"] == {
+        "schemaVersion": 1, "materialWorkbench": {"policy": "enabled"}},
+            "enabled policy was not stored without other metadata")
+    require("extras" not in enabled_document["scenes"][0],
+            "enabled fixture unexpectedly acquired scene metadata")
+    enabled_binary_length, enabled_binary_type = struct.unpack_from(
+        "<II", enabled_data, 20 + enabled_json_length)
+    require(enabled_binary_type == 0x004E4942 and enabled_binary_length % 4 == 0 and
+            28 + enabled_json_length + enabled_binary_length == len(enabled_data),
+            "enabled GLB binary chunk or total length is invalid")
+    require(struct.unpack_from("<I", enabled_data, 8)[0] == len(enabled_data),
+            "enabled GLB header length is invalid")
     require("windowLights" not in orthographic_document["scenes"][0]["extras"]["dropView"],
             "empty window-light list should be omitted")
     orthographic_camera = orthographic_document["cameras"][0]
@@ -191,6 +212,8 @@ def main() -> None:
     binary = data[binary_start:binary_start + binary_length]
     require(binary_start + binary_length == len(data), "unexpected data after binary chunk")
     require(document["buffers"][0]["byteLength"] == len(binary), "buffer byteLength is incorrect")
+    require(enabled_data[28 + enabled_json_length:] == binary,
+            "editing policy changed the geometry or embedded image binary chunk")
 
     views = document["bufferViews"]
     for view in views:
@@ -331,6 +354,9 @@ def main() -> None:
     dedup_json_length, dedup_json_type = struct.unpack_from("<II", dedup_data, 12)
     require(dedup_json_type == 0x4E4F534A, "deduplication fixture has no JSON chunk")
     dedup_document = json.loads(dedup_data[20:20 + dedup_json_length].decode("utf-8").rstrip(" \0"))
+    require(dedup_document["asset"]["extras"]["dropView"] == {
+        "schemaVersion": 1, "materialWorkbench": {"policy": "disabled"}},
+            "default-disabled policy is missing when no other metadata exists")
     dedup_binary_start = 20 + dedup_json_length + 8
     dedup_binary = dedup_data[dedup_binary_start:]
     dedup_primitives = dedup_document["meshes"][0]["primitives"]

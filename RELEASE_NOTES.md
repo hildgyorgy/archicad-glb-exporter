@@ -1,4 +1,8 @@
-## What's changed
+## Unreleased
+
+- Added a per-export **Allow material editing in Drop & View** option. It defaults to off every time and writes `asset.extras.dropView.materialWorkbench.policy` as `"disabled"` or `"enabled"` in every GLB, alongside `schemaVersion: 1`. It is a viewer editing policy, not encryption or copy protection; other software can still open the GLB.
+
+## What's changed in v1.1.0
 
 - Completed the v1.1.0 release with a validation fix: zero-length or cancelling smooth normals now fall back to the polygon normal, and glTF position accessor bounds retain exact float precision. This prevents invalid normals and accessor-bound errors without changing geometry detail, textures, or viewer brightness.
 - Exports exact duplicate vertices only once within each glTF primitive, preserving positions, normals, texture coordinates, materials, and model detail.
