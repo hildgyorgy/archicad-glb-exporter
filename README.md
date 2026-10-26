@@ -4,7 +4,7 @@ A native Archicad add-on that exports the complete current content of the active
 
 ## Current release
 
-The latest production release supports:
+Version 1.2.0 supports:
 
 - Archicad 28, 29 and 30
 - Apple Silicon Macs (`arm64`) with macOS 26 or later
